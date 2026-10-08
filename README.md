@@ -46,28 +46,39 @@ git push -u origin main
 
 | 平台 | 产物 |
 | --- | --- |
-| Windows x64 | `…-setup.exe`（NSIS 安装器） |
+| Windows x64 | `…_x64-setup.exe`（NSIS 安装器）+ `…_windows-x64-portable.zip`（便携版，见下） |
 | Linux x64 | `.deb` + `.AppImage` |
 | macOS（Apple Silicon） | `.dmg`（Intel 版矩阵已移除，以省构建时间） |
 
-### 发布：三种触发都会自动发 Release
+### 发布：构建成功即自动发正式版 Release
 
-构建成功后，由工作流最后的 `release` job 统一创建 Release（整条流水线里只有它创建 Release，避免三个平台并发创建同名 Release 互相覆盖），安装包直接挂在附件里，**不再是草稿（draft）**，发布即可见：
+构建成功后，由工作流最后的 `release` job 统一创建 Release（整条流水线里只有它创建 Release，否则三个平台并发创建同名 Release 会互相覆盖），产物直接挂在附件里，`draft: false` + `prerelease: false`，不需要再手动点发布：
 
-| 触发方式 | 版本标签 | 类型 | 带数据库 |
-| --- | --- | --- | --- |
-| `git push origin main` | `main-<构建号>` | 预览版（prerelease） | 否 |
-| Actions → Run workflow（可填 `version`，如 `0.1.0`） | 你填的版本或 `v0.1.<构建号>` | 正式版 | 是（若该次取到真库） |
-| `git tag v0.1.0 && git push origin v0.1.0` | `v0.1.0` | 正式版 | 同上 |
+| 触发方式 | 版本标签 |
+| --- | --- |
+| `git push origin main` | `v0.1.<构建号>` |
+| Actions → Run workflow（可填 `version`，如 `0.2.0`） | `v0.2.0`（留空则 `v0.1.<构建号>`） |
+| `git tag v0.2.0 && git push origin v0.2.0` | `v0.2.0` |
 
 ```bash
-git tag v0.1.0 && git push origin v0.1.0
+git tag v0.2.0 && git push origin v0.2.0
 # → 构建完成后自动创建正式 Release，安装包作为附件
 ```
 
-预览版被标记为 prerelease，**不会占用「最新 Release」**，所以 `scripts/fetch-db.mjs` 从 Release 里拿到的永远是正式版里的数据库。
-
 想要带数据库的安装包，先给构建一个可直链下载的 `poetry_index.db` 地址（Run workflow 的 `db_url`，或存成仓库 Secret `POETRY_DB_URL`），见下面一节。
+
+### Windows 便携版（免安装）
+
+Windows 那一组除了 NSIS 安装器，还会额外打出 `chinese-poetry_<版本>_windows-x64-portable.zip`，解压后双击 `chinese-poetry.exe` 就能用：免安装、不需要管理员权限，整个文件夹可以丢进 U 盘随身带。
+
+```
+chinese-poetry_0.1.0_windows-x64-portable/
+├── chinese-poetry.exe        # 主程序
+├── resources/poetry_index.db # 数据库（该次构建拿到真库就是真库，否则是 0 字节占位）
+└── 使用说明.txt
+```
+
+两点说明：程序仍依赖系统的 WebView2 运行时（Windows 10/11 一般自带；缺了就装一次 Evergreen Standalone Installer，包内的使用说明里写了链接地址）；数据库走应用目录下的 `resources/`（`src-tauri/src/db.rs` 路径候选的第 3 项），因此便携版和安装版共用同一套查找逻辑，把 `poetry_index.db` 手工放进去也一样会被认。
 
 工作流文件：`.github/workflows/build.yml`（类型检查 → 三组打包矩阵：Windows / Linux / macOS Apple Silicon → 统一发布）。
 
@@ -80,7 +91,7 @@ git tag v0.1.0 && git push origin v0.1.0
 1. **填一次下载地址**：Actions → Run workflow，在 `db_url` 里填可直链下载的地址，例如原项目 Git LFS 的直链
    `https://media.githubusercontent.com/media/daichangya/chinese-poetry-site/main/public/data/poetry_index.db`
    （实测匿名可下载，216,215,552 字节；注意 `raw.githubusercontent.com` 只会返回 LFS 指针文件，必须用 `media.githubusercontent.com`）。也可以把它存成仓库 Secret `POETRY_DB_URL`，以后每次构建都自动使用。
-2. **发一次带库的正式版**：按上面办法成功构建一次后，Linux 那一组会把 `poetry_index.db` 也作为 Release 附件上传（仅**正式版**且取到真库时；预览版不上传）。此后 `scripts/fetch-db.mjs` 的「本仓库最新 Release」途径就永久有效——既不占 Git 体积，也不用每次手填地址。
+2. **发一次带库的正式版**：按上面办法成功构建一次后，Linux 那一组会把 `poetry_index.db` 也作为 Release 附件上传（仅当仓库里还没有这份资产时上传一次，避免每次发版都重复塞 216MB）。此后 `scripts/fetch-db.mjs` 会遍历本仓库最近的 Release 找这份库并自动复用——既不占 Git 体积，也不用每次手填地址。
 
 ---
 

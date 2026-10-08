@@ -10,7 +10,8 @@
  *   2. $POETRY_DB_SRC          本地已有文件（环境变量）
  *   3. 常见本地路径候选        原站点 public/data/poetry_index.db 等
  *   4. --url / $POETRY_DB_URL  直接 HTTP(S) 下载
- *   5. GitHub Release 资产     $POETRY_DB_RELEASE（owner/repo@tag）或当前仓库 release 里的 poetry_index.db
+ *   5. GitHub Release 资产     $POETRY_DB_RELEASE（owner/repo@tag）或本仓库最近若干个 Release 里的
+ *                              poetry_index.db（逐个 Release 找，不只查 "latest"）
  *   6. 都没有                  生成 0 字节占位文件，保证 Tauri 打包不失败（应用启动后提示用户导入数据库）
  *
  * 任意来源都可以用 --sha256 <十六进制> / $POETRY_DB_SHA256 强制校验下载结果，
@@ -165,24 +166,8 @@ async function download(url) {
   }
 }
 
-/** 从 GitHub Release 资产里找 poetry_index.db */
-async function fetchFromRelease(spec) {
-  const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
-  const headers = { Accept: "application/vnd.github+json", "User-Agent": "fetch-db-script" };
-  if (token) headers.Authorization = `Bearer ${token}`;
-
-  let apiUrl;
-  if (spec) {
-    // 形式：owner/repo@tag
-    const [repo, tag] = spec.split("@");
-    const base = `https://api.github.com/repos/${repo}/releases`;
-    apiUrl = tag ? `${base}/tags/${tag}` : `${base}/latest`;
-  } else if (process.env.GITHUB_REPOSITORY) {
-    apiUrl = `https://api.github.com/repos/${process.env.GITHUB_REPOSITORY}/releases/latest`;
-  } else {
-    return null;
-  }
-
+/** 从单个 Release API 地址里取 poetry_index.db */
+async function dbFromReleaseApi(apiUrl, headers, label) {
   const res = await fetch(apiUrl, { headers });
   if (!res.ok) {
     console.warn(`[fetch-db] 读取 Release 失败：HTTP ${res.status}`);
@@ -191,10 +176,48 @@ async function fetchFromRelease(spec) {
   const release = await res.json();
   const asset = (release.assets ?? []).find((a) => a.name === DB_NAME);
   if (!asset) {
-    console.warn("[fetch-db] Release 中没有 poetry_index.db 资产");
+    console.warn(`[fetch-db] ${label} 中没有 ${DB_NAME} 资产`);
     return null;
   }
-  return downloadWithFetch(asset.browser_download_url, headers);
+  return download(asset.browser_download_url);
+}
+
+/** 从 GitHub Release 资产里找 poetry_index.db */
+async function fetchFromRelease(spec) {
+  const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+  const headers = { Accept: "application/vnd.github+json", "User-Agent": "fetch-db-script" };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  // 显式指定 owner/repo@tag：只查那一个 Release
+  if (spec) {
+    const [repo, tag] = spec.split("@");
+    const base = `https://api.github.com/repos/${repo}/releases`;
+    const apiUrl = tag ? `${base}/tags/${tag}` : `${base}/latest`;
+    return await dbFromReleaseApi(apiUrl, headers, `Release ${spec}`);
+  }
+
+  const repoSlug = process.env.GITHUB_REPOSITORY;
+  if (!repoSlug) return null;
+
+  // 本仓库：列出最近的 Release 逐个找，不能只看 /releases/latest ——
+  // 最新的那个 Release 未必带着数据库（比如那次构建没拿到下载地址），
+  // 而数据库只要上传过一次，就会一直挂在某个较早的 Release 上。
+  const listUrl = `https://api.github.com/repos/${repoSlug}/releases?per_page=60`;
+  const res = await fetch(listUrl, { headers });
+  if (!res.ok) {
+    console.warn(`[fetch-db] 读取 Release 列表失败：HTTP ${res.status}`);
+    return null;
+  }
+  const releases = await res.json();
+  const hit = releases.find(
+    (r) => !r.draft && (r.assets ?? []).some((a) => a.name === DB_NAME),
+  );
+  if (!hit) {
+    console.warn(`[fetch-db] 本仓库最近 ${releases.length} 个 Release 里都没有 ${DB_NAME} 资产`);
+    return null;
+  }
+  console.log(`[fetch-db] 命中 Release ${hit.tag_name} 里的 ${DB_NAME}`);
+  return download(hit.assets.find((a) => a.name === DB_NAME).browser_download_url);
 }
 
 async function main() {

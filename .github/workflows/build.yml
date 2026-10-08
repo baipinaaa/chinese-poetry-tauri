@@ -1,11 +1,12 @@
 # 由 GitHub Actions 编译 Tauri 桌面应用（本机没有编译条件，全部在云端完成）
 #
-# 触发方式（三种都会在构建成功后自动创建 Release，安装包直接挂在 Release 上）：
-#   1. 手动：Actions → Build → Run workflow（可选填版本号与数据库下载地址）→ 正式版 Release
-#   2. 打标签：git push origin v0.1.0 → 正式版 Release（tag 就是版本号）
-#   3. push main：自动发一个预览版 Release（prerelease，tag 形如 main-123），只验功能不发正式版；
-#      预览版不带数据库，因此永远不占用「最新 Release」，fetch-db 拿到的一定是正式版的库
+# 触发方式（都是**正式版** Release，安装包直接挂在 Release 附件里）：
+#   1. 手动：Actions → Build → Run workflow（可填版本号；留空则用 v0.1.<构建号>）
+#   2. 打标签：git push origin v0.1.0 → Release 版本号就是 tag
+#   3. push main：自动发布 v0.1.<构建号>
 #   4. PR：只做类型检查与前端构建，不打包
+#
+# 产物：Windows NSIS 安装器 + Windows 便携版 zip、Linux deb + AppImage、macOS Apple Silicon dmg
 #
 # Release 只在最后那个 release job 里创建一次：三个平台的矩阵任务并发跑，若各自去创建 Release
 # 会互相覆盖（draft 版按 tag 查不到，会生成多个同名草稿），所以先各自上传构建产物，再统一发布。
@@ -84,18 +85,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: Windows (x64, NSIS)
+          - name: Windows (x64, NSIS + 便携版)
             platform: windows-latest
             target: x86_64-pc-windows-msvc
-            args: ""
+            args: "--bundles nsis"
           - name: Linux (x64, deb + AppImage)
             platform: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
-            args: ""
+            args: "--bundles deb,appimage"
           - name: macOS (Apple Silicon, dmg)
             platform: macos-latest
             target: aarch64-apple-darwin
-            args: "--target aarch64-apple-darwin"
+            args: "--target aarch64-apple-darwin --bundles dmg"
 
     runs-on: ${{ matrix.platform }}
 
@@ -173,6 +174,52 @@ jobs:
       - name: 编译并打包
         run: npm run tauri:build -- ${{ matrix.args }}
 
+
+      # Windows 便携版（免安装）：主程序 + 数据库资源打成 zip，解压双击即用，可放 U 盘
+      - name: 打包 Windows 便携版（免安装 zip）
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          DB_REAL: ${{ steps.dbcheck.outputs.real }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ver = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $name = "chinese-poetry_${ver}_windows-x64-portable"
+          $stage = "portable/$name"
+          New-Item -ItemType Directory -Force -Path "$stage/resources" | Out-Null
+
+          # 编译产物（排除安装器）；Windows 未传 --target，因此就在 target/release 下
+          $exe = Get-ChildItem "src-tauri/target/release/*.exe" |
+                 Where-Object { $_.Name -notmatch 'setup|installer' } |
+                 Sort-Object Length -Descending | Select-Object -First 1
+          if (-not $exe) { throw "没找到编译产物 exe，无法制作便携版" }
+          Copy-Item $exe.FullName "$stage/"
+          Copy-Item "src-tauri/resources/poetry_index.db" "$stage/resources/"
+
+          # 说明文件按“这次到底有没有拿到真库”分别写
+          $lines = @(
+            "诗词 便携版 $ver（$($exe.Name)）",
+            "====================================",
+            "1. 解压到任意目录（路径含中文也可以）。",
+            "2. 双击 $($exe.Name) 直接运行：无需安装、无需管理员权限，可放 U 盘随身携带。",
+            "3. 依赖 WebView2 运行时：Windows 10/11 一般已自带；若启动时提示缺失，到",
+            "   https://developer.microsoft.com/microsoft-edge/webview2/ 下载",
+            "   Evergreen Standalone Installer 安装一次即可。"
+          )
+          if ($env:DB_REAL -eq 'true') {
+            $lines += "4. 数据库：已内置在 resources/poetry_index.db，打开即用。"
+          } else {
+            $lines += "4. 数据库：包内的 resources/poetry_index.db 是 0 字节占位文件。首次启动会出现"
+            $lines += "   「需要导入诗词数据库」引导页，点「选择数据库文件」选中你自己的 poetry_index.db 即可。"
+          }
+          $lines += "5. 卸载：直接删掉整个文件夹就行了。"
+          Set-Content -Path "$stage/使用说明.txt" -Value ($lines -join "`r`n") -Encoding UTF8
+
+          $zip = "portable/$name.zip"
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          Compress-Archive -Path $stage -DestinationPath $zip -CompressionLevel Optimal
+          Get-ChildItem portable | Select-Object Name, Length @{n='MB';e={[math]::Round($_.Length/1MB,1)}}
+
       - name: 收集安装包
         uses: actions/upload-artifact@v4
         with:
@@ -180,19 +227,33 @@ jobs:
           if-no-files-found: warn
           compression-level: 0 # 安装包本身已压缩，再压只会浪费时间
           path: |
-            src-tauri/target/release/bundle/nsis/*.exe
-            src-tauri/target/release/bundle/msi/*.msi
-            src-tauri/target/*/release/bundle/dmg/*.dmg
-            src-tauri/target/*/release/bundle/deb/*.deb
-            src-tauri/target/*/release/bundle/rpm/*.rpm
-            src-tauri/target/*/release/bundle/appimage/*.AppImage
+            src-tauri/target/**/bundle/nsis/*.exe
+            src-tauri/target/**/bundle/msi/*.msi
+            src-tauri/target/**/bundle/dmg/*.dmg
+            src-tauri/target/**/bundle/deb/*.deb
+            src-tauri/target/**/bundle/rpm/*.rpm
+            src-tauri/target/**/bundle/appimage/*.AppImage
+            portable/*.zip
 
-      # 数据库作为临时产物交给 release job 一起发布（仅 Linux 那次、仅正式版、且确实拿到真库时）。
-      # 好处：下次构建时 scripts/fetch-db.mjs 能从本仓库最新 Release 自动取到 216MB 的库，
+      # 仓库里已经存过一份数据库资产就不再重复上传：216MB 一份就够，否则每次发布都塞一遍，
+      # 既拖慢构建也白占配额。
+      - name: 检查仓库里是否已有数据库资产
+        id: dbasset
+        if: matrix.platform == 'ubuntu-22.04' && steps.dbcheck.outputs.real == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          n=$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=50" \
+                --jq '[.[].assets[].name] | map(select(. == "poetry_index.db")) | length' 2>/dev/null || echo 0)
+          echo "existing=$n" >> "$GITHUB_OUTPUT"
+          echo "仓库里已有的 poetry_index.db 资产数量：$n"
+
+      # 数据库作为临时产物交给 release job 一起发布（仅 Linux 那次、且确实拿到真库时）。
+      # 好处：下次构建时 scripts/fetch-db.mjs 能从本仓库的 Release 自动取到 216MB 的库，
       # 不用把它提交进 Git，也不用每次手动填下载地址。
       # retention-days: 1 —— artifact 只当中转站，发完就不用留着占存储配额。
-      - name: 上传数据库供发布使用（仅 Linux、正式版、且取到真实库时）
-        if: matrix.platform == 'ubuntu-22.04' && steps.dbcheck.outputs.real == 'true' && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
+      - name: 上传数据库供发布使用（仅 Linux、且取到真实库时）
+        if: matrix.platform == 'ubuntu-22.04' && steps.dbcheck.outputs.real == 'true' && steps.dbasset.outputs.existing == '0'
         uses: actions/upload-artifact@v4
         with:
           name: db-poetry
@@ -207,7 +268,7 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      # 决定 Release 的标签名，以及是正式版还是预览版
+      # 决定 Release 的版本号（tag 推送用 tag 本身，其余用填写的版本号或 v0.1.<构建号>）
       - name: 计算版本标签
         id: meta
         shell: bash
@@ -217,27 +278,16 @@ jobs:
           set -euo pipefail
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             tag="${GITHUB_REF_NAME}"
-            pre=false
-          elif [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+          else
             v="${INPUT_VERSION#v}"
             v="${v:-0.1.${GITHUB_RUN_NUMBER}}"
             tag="v${v}"
-            pre=false
-          else
-            tag="main-${GITHUB_RUN_NUMBER}"
-            pre=true
-          fi
-          if [[ "$pre" == "true" ]]; then
-            title="诗词 预览版 ${tag}"
-          else
-            title="诗词 ${tag}"
           fi
           {
             echo "tag=${tag}"
-            echo "prerelease=${pre}"
-            echo "title=${title}"
+            echo "title=诗词 ${tag}"
           } >> "$GITHUB_OUTPUT"
-          echo "本次发布：tag=${tag}，prerelease=${pre}"
+          echo "本次发布：正式版 ${tag}"
 
       - name: 下载全部安装包
         uses: actions/download-artifact@v4
@@ -246,9 +296,8 @@ jobs:
           merge-multiple: true
           path: dist
 
-      # 正式版才带数据库；预览版没有这个产物，continue-on-error 保证不会因此失败
-      - name: 下载数据库（仅正式版）
-        if: steps.meta.outputs.prerelease == 'false'
+      # 数据库有就一起带上；这次没拿到真库时该产物不存在，continue-on-error 保证不因此失败
+      - name: 下载数据库（如果这次构建拿到了真库）
         continue-on-error: true
         uses: actions/download-artifact@v4
         with:
@@ -266,6 +315,6 @@ jobs:
           target_commitish: ${{ github.sha }}
           name: ${{ steps.meta.outputs.title }}
           draft: false # 不再停在草稿：草稿不会成为「最新 Release」，fetch-db 也就取不到里面的数据库
-          prerelease: ${{ steps.meta.outputs.prerelease == 'true' }}
+          prerelease: false
           generate_release_notes: true
           files: dist/**
