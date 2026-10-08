@@ -218,7 +218,7 @@ jobs:
           $zip = "portable/$name.zip"
           if (Test-Path $zip) { Remove-Item $zip -Force }
           Compress-Archive -Path $stage -DestinationPath $zip -CompressionLevel Optimal
-          Get-ChildItem portable | Select-Object Name, Length @{n='MB';e={[math]::Round($_.Length/1MB,1)}}
+          Get-ChildItem portable | Select-Object Name, @{n='MB';e={[math]::Round($_.Length/1MB,1)}}
 
       - name: 收集安装包
         uses: actions/upload-artifact@v4
