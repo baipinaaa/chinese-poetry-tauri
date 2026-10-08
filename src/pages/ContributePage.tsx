@@ -3,12 +3,14 @@
  * 移植自 Web 版 app/contribute/page.tsx：
  * 桌面版离线运行，无服务端与表单提交能力，故页面内容保留，
  * 仅补充「桌面版请在网页端提交」的说明，不伪造任何提交成功。
+ * 外链统一走 ExternalLink（Tauri 下用系统浏览器打开）。
  * @author daichangya@163.com
  * https://shi-ci.cn
  */
 
 import { useEffect } from "react";
 import { Link } from "react-router-dom";
+import ExternalLink from "../components/ExternalLink";
 
 /** 未配置时使用 .md 仓库（纠错与完善、贡献入口） */
 const REPO =
@@ -41,14 +43,14 @@ export default function ContributePage() {
         <h2 className="text-lg font-semibold text-primary">数据来源</h2>
         <p className="text-sm text-text/80">
           本站诗词原始数据来源于开源仓库
-          <a
+          <ExternalLink
             href={DATA_SOURCE_URL}
             target="_blank"
             rel="noopener noreferrer"
             className="cursor-pointer text-primary hover:underline"
           >
             chinese-poetry
-          </a>
+          </ExternalLink>
           ，最全中华古诗词数据库（唐诗、宋诗、宋词等）。
         </p>
       </section>
@@ -74,14 +76,14 @@ export default function ContributePage() {
           <p className="text-sm text-text/80">
             本站网站与 Markdown 内容托管于以下仓库，可在仓库中参与编辑与讨论：
           </p>
-          <a
+          <ExternalLink
             href={REPO}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-cta px-4 py-2 text-sm font-medium text-white transition-colors hover:opacity-90"
           >
             前往仓库
-          </a>
+          </ExternalLink>
         </section>
       )}
 

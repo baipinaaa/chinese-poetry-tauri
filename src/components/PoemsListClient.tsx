@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * 诗词列表客户端组件：仅发起 1 次查询获取诗词数据。
  * 筛选参数（dynasty/tag/rhythmic/q）直接传给 fetchPoems，由数据层做 name/slug 双向匹配，

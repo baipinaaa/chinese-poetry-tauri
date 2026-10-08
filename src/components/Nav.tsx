@@ -1,18 +1,17 @@
-"use client";
-
 /**
  * 全局导航：左侧 Logo/诗文/诗人/朝代，右侧搜索框。
  * 在诗文页输入时防抖后自动更新 URL 触发搜索，无需点「搜索」。
  *
  * SPA 版：next/link → react-router-dom Link；useRouter/usePathname/useSearchParams
  * 分别改为 useNavigate / useLocation().pathname / react-router-dom 的 useSearchParams；
- * NEXT_PUBLIC_SOURCE_REPO 环境变量改为常量。
+ * NEXT_PUBLIC_SOURCE_REPO 环境变量改为常量；外链改用 ExternalLink（Tauri 下走系统浏览器）。
  * @author daichangya@163.com
  * https://shi-ci.cn
  */
 
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useState, useCallback, useEffect, useMemo } from "react";
+import ExternalLink from "./ExternalLink";
 
 const SEARCH_DEBOUNCE_MS = 400;
 
@@ -257,14 +256,14 @@ export default function Nav() {
               ))}
             </select>
           </label>
-          <a
+          <ExternalLink
             href={DEFAULT_SOURCE_REPO}
             target="_blank"
             rel="noopener noreferrer"
             className="cursor-pointer rounded text-sm text-text/90 transition-colors duration-200 hover:text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
           >
             GitHub
-          </a>
+          </ExternalLink>
         </div>
       </div>
     </header>

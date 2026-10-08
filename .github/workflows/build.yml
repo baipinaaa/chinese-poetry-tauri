@@ -54,15 +54,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.npm
-          key: npm-${{ runner.os }}-${{ hashFiles('package.json') }}
+          key: npm-${{ runner.os }}-${{ hashFiles('package.json', 'package-lock.json') }}
           restore-keys: npm-${{ runner.os }}-
 
       - name: 安装前端依赖
         run: npm install --no-audit --no-fund
 
       - name: TypeScript 类型检查
-        run: npm run typecheck
-        continue-on-error: true # 类型问题不阻塞出包，但会在日志里明确列出
+        run: npm run typecheck # 类型错误必须修掉：build job 的 tauri:build 会触发 beforeBuildCommand（tsc + vite build），同样会跑一遍
 
       - name: 前端构建（vite build）
         run: npx vite build
@@ -133,7 +132,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.npm
-          key: npm-${{ runner.os }}-${{ hashFiles('package.json') }}
+          key: npm-${{ runner.os }}-${{ hashFiles('package.json', 'package-lock.json') }}
           restore-keys: npm-${{ runner.os }}-
 
       - name: 安装前端依赖

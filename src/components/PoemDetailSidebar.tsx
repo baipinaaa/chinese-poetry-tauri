@@ -2,7 +2,8 @@
  * 诗词详情页右侧栏：纠错与完善、阅读设置、作者信息、同朝代诗词。
  * 样式参考 docs/右侧边样式.png。
  * 桌面版移植：next/link → react-router-dom Link；阅读设置改用 src/context/ReadingSettingsContext；
- * 去掉 process.env（桌面端无环境变量，源码仓库地址改为常量）。
+ * 去掉 process.env（桌面端无环境变量，源码仓库地址改为常量）；
+ * 外部链接改用 ExternalLink（Tauri 下交给系统浏览器打开）。
  * @author daichangya@163.com
  * https://shi-ci.cn
  */
@@ -13,6 +14,7 @@ import type { Poem } from "../lib/types";
 import { useReadingSettings, type PoemFont } from "../context/ReadingSettingsContext";
 import { pinyinNumLineToSymbol } from "../lib/pinyin_display";
 import Toggle from "./Toggle";
+import ExternalLink from "./ExternalLink";
 
 function convertToTraditional(text: string, converter: ((s: string) => string) | null): string {
   if (!converter || !text) return text;
@@ -38,6 +40,10 @@ function Card({ children, className = "" }: { children: React.ReactNode; classNa
 }
 
 /** 纠错与完善：居中深色按钮 + 下方「首次贡献? 点击 查看教程~」，参考右侧边样式图 */
+/** 纠错按钮样式（外链与内部路由共用，样式与原先一致） */
+const CORRECTION_BUTTON_CLASS =
+  "inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg bg-text px-4 py-2.5 text-sm font-medium text-white transition-colors duration-200 hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background";
+
 function CorrectionCard({
   buttonHref,
   tutorialHref,
@@ -45,28 +51,44 @@ function CorrectionCard({
   buttonHref: string;
   tutorialHref: string;
 }) {
+  /** http(s) 地址 → ExternalLink（Tauri 下用系统浏览器打开）；内部路由（/contribute）→ 继续用 Link */
+  const buttonIsExternal = buttonHref.startsWith("http");
+  const tutorialIsExternal = tutorialHref.startsWith("http");
   return (
     <Card>
       <div className="flex flex-col items-center gap-2 text-center">
-        <a
-          href={buttonHref}
-          target={buttonHref.startsWith("http") ? "_blank" : undefined}
-          rel={buttonHref.startsWith("http") ? "noopener noreferrer" : undefined}
-          className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg bg-text px-4 py-2.5 text-sm font-medium text-white transition-colors duration-200 hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background"
-        >
-          <PencilIcon />
-          纠错与完善/内容贡献
-        </a>
+        {buttonIsExternal ? (
+          <ExternalLink
+            href={buttonHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={CORRECTION_BUTTON_CLASS}
+          >
+            <PencilIcon />
+            纠错与完善/内容贡献
+          </ExternalLink>
+        ) : (
+          <Link to={buttonHref} className={CORRECTION_BUTTON_CLASS}>
+            <PencilIcon />
+            纠错与完善/内容贡献
+          </Link>
+        )}
         <span className="text-xs text-text/60">
           首次贡献? 点击{" "}
-          <a
-            href={tutorialHref}
-            target={tutorialHref.startsWith("http") ? "_blank" : undefined}
-            rel={tutorialHref.startsWith("http") ? "noopener noreferrer" : undefined}
-            className="cursor-pointer text-primary hover:underline"
-          >
-            查看教程
-          </a>
+          {tutorialIsExternal ? (
+            <ExternalLink
+              href={tutorialHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="cursor-pointer text-primary hover:underline"
+            >
+              查看教程
+            </ExternalLink>
+          ) : (
+            <Link to={tutorialHref} className="cursor-pointer text-primary hover:underline">
+              查看教程
+            </Link>
+          )}
           ~
         </span>
       </div>

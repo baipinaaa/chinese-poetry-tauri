@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * 开关：标签在左、开关在右，参考右侧边样式图。
  * @author daichangya@163.com
