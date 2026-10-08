@@ -129,10 +129,17 @@ chinese-poetry-tauri/
 
 ## 6. 已知限制
 
-- 数据库只读打开，应用不会修改原始数据文件。
-- 词库只读打开，应用不会修改原始数据文件。
+- 数据库以只读方式打开（Rust 侧只放行 `SELECT`/`WITH` 开头的语句），应用不会修改原始数据文件。
+- 数据库缺失或仍是 0 字节占位文件时，启动后会显示导入引导页，不会崩溃或白屏。
+- 安装包**未做代码签名与公证**：Windows 可能出现 SmartScreen 提示，macOS 首次需右键 →「打开」。
 - 安装包体积约 15–25 MB（不含数据库）；把数据库打进包会让安装包达到 200 MB+，这是有意的取舍项 —— 当前默认走"外部数据库 + 首次导入引导"。
 - 未包含原项目的 SSG 预渲染、图片优化等 Web 专属能力。
+
+## 7. 当前状态
+
+- 前端：`tsc --noEmit` 无报错，`npm run build` 可产出 `dist/`（约 0.9 MB，含 opencc-js 简繁词库）。
+- Rust 侧（`src-tauri/src/db.rs`、`main.rs`）与 `.github/workflows/build.yml` **尚未真正在 GitHub Actions 上跑过一次**，首次触发构建时若报错，重点看这三处。
+- 仓库不含数据库与 `dist/`、`node_modules/`、`src-tauri/target/`，仓库体积约 2 MB。
 
 ## 许可
 
