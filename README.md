@@ -19,7 +19,7 @@
 | --- | --- |
 | ① 本机已有 | 设 `POETRY_DB_SRC=D:\path\poetry_index.db`，然后 `npm run fetch:db` |
 | ② 直接给地址 | `npm run fetch:db -- --url https://…/poetry_index.db`（支持 http(s) / file://，支持 `--sha256 <值>` 校验） |
-| ③ 仓库 Release | 把 `poetry_index.db` 作为附件放进任意一次 Release，CI 会自动拉取最新 Release 里的同名资产 |
+| ③ 仓库 Release | 把 `poetry_index.db` 作为附件放进本仓库的**最新正式 Release**（正式版构建会自动做这件事），CI 即可自动拉取
 | ④ 手动下载 | 手动拷到 `src-tauri/resources/poetry_index.db` |
 
 > 数据库由原项目的 `scripts/seed_db.ts` 从 `chinese-poetry-md` 目录构建；也可以直接从原项目 `public/data/poetry_index.db` 复制一份。
@@ -50,20 +50,37 @@ git push -u origin main
 | Linux x64 | `.deb` + `.AppImage` |
 | macOS（Apple Silicon） | `.dmg`（Intel 版矩阵已移除，以省构建时间） |
 
-想要带数据库的安装包，先把 `poetry_index.db` 放进仓库的 **Release 附件**（新建 Release，拖入文件即可），再次触发构建；或者在 Run workflow 的 `db_url` 输入框里填一个可直链下载的地址（也可以把它存成仓库 Secret `POETRY_DB_URL`）。
+### 发布：三种触发都会自动发 Release
 
-打标签会自动发版：
+构建成功后，由工作流最后的 `release` job 统一创建 Release（整条流水线里只有它创建 Release，避免三个平台并发创建同名 Release 互相覆盖），安装包直接挂在附件里，**不再是草稿（draft）**，发布即可见：
+
+| 触发方式 | 版本标签 | 类型 | 带数据库 |
+| --- | --- | --- | --- |
+| `git push origin main` | `main-<构建号>` | 预览版（prerelease） | 否 |
+| Actions → Run workflow（可填 `version`，如 `0.1.0`） | 你填的版本或 `v0.1.<构建号>` | 正式版 | 是（若该次取到真库） |
+| `git tag v0.1.0 && git push origin v0.1.0` | `v0.1.0` | 正式版 | 同上 |
 
 ```bash
 git tag v0.1.0 && git push origin v0.1.0
-# → 构建完成后自动生成一个 draft Release，安装包作为附件
+# → 构建完成后自动创建正式 Release，安装包作为附件
 ```
 
-工作流文件：`.github/workflows/build.yml`（含前端类型检查 → 三组打包矩阵：Windows / Linux / macOS Apple Silicon）。
+预览版被标记为 prerelease，**不会占用「最新 Release」**，所以 `scripts/fetch-db.mjs` 从 Release 里拿到的永远是正式版里的数据库。
+
+想要带数据库的安装包，先给构建一个可直链下载的 `poetry_index.db` 地址（Run workflow 的 `db_url`，或存成仓库 Secret `POETRY_DB_URL`），见下面一节。
+
+工作流文件：`.github/workflows/build.yml`（类型检查 → 三组打包矩阵：Windows / Linux / macOS Apple Silicon → 统一发布）。
 
 ### 数据库与 Release
 
-推送 `v*` 标签触发构建时，若该次构建取到了真实数据库（大于 1 MB），Linux 那一组会把 `poetry_index.db` 一并作为 Release 资产上传（手动触发的构建不会上传）。这样以后再构建时，即使不填 `POETRY_DB_URL`，`scripts/fetch-db.mjs` 也能从本仓库最新 Release 自动取到它——既不占用 Git 仓库体积，也不用每次手填下载地址。
+**为什么 CI 里经常拿不到数据库**：仓库不含 216 MB 的 `poetry_index.db`（原项目用 Git LFS 保存它），CI 每次都是全新克隆，本地候选路径全都不存在；不给下载地址时构建出来的是 0 字节占位文件（安装包仍可正常安装，只是启动后显示导入引导页）。
+
+给它一个地址（只需做一次，之后可以自循环）：
+
+1. **填一次下载地址**：Actions → Run workflow，在 `db_url` 里填可直链下载的地址，例如原项目 Git LFS 的直链
+   `https://media.githubusercontent.com/media/daichangya/chinese-poetry-site/main/public/data/poetry_index.db`
+   （实测匿名可下载，216,215,552 字节；注意 `raw.githubusercontent.com` 只会返回 LFS 指针文件，必须用 `media.githubusercontent.com`）。也可以把它存成仓库 Secret `POETRY_DB_URL`，以后每次构建都自动使用。
+2. **发一次带库的正式版**：按上面办法成功构建一次后，Linux 那一组会把 `poetry_index.db` 也作为 Release 附件上传（仅**正式版**且取到真库时；预览版不上传）。此后 `scripts/fetch-db.mjs` 的「本仓库最新 Release」途径就永久有效——既不占 Git 体积，也不用每次手填地址。
 
 ---
 
@@ -142,7 +159,8 @@ chinese-poetry-tauri/
 ## 7. 当前状态
 
 - 前端：`tsc --noEmit` 无报错，`npm run build` 可产出 `dist/`（约 0.9 MB，含 opencc-js 简繁词库）。
-- Rust 侧（`src-tauri/src/db.rs`、`main.rs`）与 `.github/workflows/build.yml` **尚未真正在 GitHub Actions 上跑过一次**，首次触发构建时若报错，重点看这三处。
+- GitHub Actions 已在云端跑通一次全平台构建（[run 37754749318](https://github.com/baipinaaa/chinese-poetry-tauri/actions/runs/37754749318)：类型检查、Windows NSIS、Linux deb+AppImage、macOS dmg 全部成功）。那次没有产出 Release，因为发布逻辑当时只在 `v*` 标签下触发；现已改为三种触发统一发布（见上文）。
+- 那次构建没有提供数据库地址，所以安装包里带的是 0 字节占位文件，应用启动后走导入引导页。
 - 仓库不含数据库与 `dist/`、`node_modules/`、`src-tauri/target/`，仓库体积约 2 MB。
 
 ## 许可

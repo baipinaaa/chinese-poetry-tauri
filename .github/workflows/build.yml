@@ -1,10 +1,14 @@
 # 由 GitHub Actions 编译 Tauri 桌面应用（本机没有编译条件，全部在云端完成）
 #
-# 触发方式：
-#   1. 手动：Actions → Build → Run workflow（可选填数据库下载地址）
-#   2. 打标签：git push origin v0.1.0  → 自动编译并创建 Release，附安装包；
-#      若本次构建取到了真实数据库，也会一并作为 Release 资产上传（方便后续构建直接复用）
-#   3. PR：只做类型检查与前端构建，不打包
+# 触发方式（三种都会在构建成功后自动创建 Release，安装包直接挂在 Release 上）：
+#   1. 手动：Actions → Build → Run workflow（可选填版本号与数据库下载地址）→ 正式版 Release
+#   2. 打标签：git push origin v0.1.0 → 正式版 Release（tag 就是版本号）
+#   3. push main：自动发一个预览版 Release（prerelease，tag 形如 main-123），只验功能不发正式版；
+#      预览版不带数据库，因此永远不占用「最新 Release」，fetch-db 拿到的一定是正式版的库
+#   4. PR：只做类型检查与前端构建，不打包
+#
+# Release 只在最后那个 release job 里创建一次：三个平台的矩阵任务并发跑，若各自去创建 Release
+# 会互相覆盖（draft 版按 tag 查不到，会生成多个同名草稿），所以先各自上传构建产物，再统一发布。
 #
 # 数据库（poetry_index.db，约 216MB）不提交进 Git，获取顺序见 scripts/fetch-db.mjs：
 #   ① 本机已有文件  ② POETRY_DB_URL（手动触发时的 db_url 输入或仓库 Secret）
@@ -16,6 +20,10 @@ on:
     inputs:
       db_url:
         description: "poetry_index.db 下载地址（留空则尝试从本仓库最新 Release 获取）"
+        required: false
+        default: ""
+      version:
+        description: "Release 版本号，如 0.1.0（留空则自动用 0.1.<构建号>）"
         required: false
         default: ""
   push:
@@ -179,26 +187,85 @@ jobs:
             src-tauri/target/*/release/bundle/rpm/*.rpm
             src-tauri/target/*/release/bundle/appimage/*.AppImage
 
-      - name: 挂到 Release（仅打标签时）
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          draft: true
-          generate_release_notes: true
-          files: |
-            src-tauri/target/release/bundle/nsis/*.exe
-            src-tauri/target/release/bundle/msi/*.msi
-            src-tauri/target/*/release/bundle/dmg/*.dmg
-            src-tauri/target/*/release/bundle/deb/*.deb
-            src-tauri/target/*/release/bundle/rpm/*.rpm
-            src-tauri/target/*/release/bundle/appimage/*.AppImage
-
-      # 数据库也当作 Release 资产（仅 Linux 那一个矩阵项上传，避免多平台重名冲突）。
-      # 好处：下次构建时 scripts/fetch-db.mjs 可从本仓库最新 Release 自动取到 216MB 的库，
+      # 数据库作为临时产物交给 release job 一起发布（仅 Linux 那次、仅正式版、且确实拿到真库时）。
+      # 好处：下次构建时 scripts/fetch-db.mjs 能从本仓库最新 Release 自动取到 216MB 的库，
       # 不用把它提交进 Git，也不用每次手动填下载地址。
-      - name: 数据库随 Release 上传（仅 Linux、且取到真实库时）
-        if: startsWith(github.ref, 'refs/tags/v') && matrix.platform == 'ubuntu-22.04' && steps.dbcheck.outputs.real == 'true'
+      # retention-days: 1 —— artifact 只当中转站，发完就不用留着占存储配额。
+      - name: 上传数据库供发布使用（仅 Linux、正式版、且取到真实库时）
+        if: matrix.platform == 'ubuntu-22.04' && steps.dbcheck.outputs.real == 'true' && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-poetry
+          path: src-tauri/resources/poetry_index.db
+          compression-level: 0
+          retention-days: 1
+
+  # ---------- 3. 发布 Release（整个工作流里唯一创建 Release 的地方） ----------
+  release:
+    name: 发布 Release
+    needs: [build]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      # 决定 Release 的标签名，以及是正式版还是预览版
+      - name: 计算版本标签
+        id: meta
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            tag="${GITHUB_REF_NAME}"
+            pre=false
+          elif [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            v="${INPUT_VERSION#v}"
+            v="${v:-0.1.${GITHUB_RUN_NUMBER}}"
+            tag="v${v}"
+            pre=false
+          else
+            tag="main-${GITHUB_RUN_NUMBER}"
+            pre=true
+          fi
+          if [[ "$pre" == "true" ]]; then
+            title="诗词 预览版 ${tag}"
+          else
+            title="诗词 ${tag}"
+          fi
+          {
+            echo "tag=${tag}"
+            echo "prerelease=${pre}"
+            echo "title=${title}"
+          } >> "$GITHUB_OUTPUT"
+          echo "本次发布：tag=${tag}，prerelease=${pre}"
+
+      - name: 下载全部安装包
+        uses: actions/download-artifact@v4
+        with:
+          pattern: bundles-*
+          merge-multiple: true
+          path: dist
+
+      # 正式版才带数据库；预览版没有这个产物，continue-on-error 保证不会因此失败
+      - name: 下载数据库（仅正式版）
+        if: steps.meta.outputs.prerelease == 'false'
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: db-poetry
+          path: dist
+
+      - name: 列出待上传文件
+        shell: bash
+        run: ls -lh dist || true
+
+      - name: 创建并发布 Release
         uses: softprops/action-gh-release@v2
         with:
-          draft: true
-          files: src-tauri/resources/poetry_index.db
+          tag_name: ${{ steps.meta.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ steps.meta.outputs.title }}
+          draft: false # 不再停在草稿：草稿不会成为「最新 Release」，fetch-db 也就取不到里面的数据库
+          prerelease: ${{ steps.meta.outputs.prerelease == 'true' }}
+          generate_release_notes: true
+          files: dist/**
