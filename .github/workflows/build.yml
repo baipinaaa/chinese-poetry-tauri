@@ -14,6 +14,9 @@
 # 数据库（poetry_index.db，约 216MB）不提交进 Git，获取顺序见 scripts/fetch-db.mjs：
 #   ① 本机已有文件  ② POETRY_DB_URL（手动触发时的 db_url 输入或仓库 Secret）
 #   ③ 本仓库最新 Release 里的 poetry_index.db 资产  ④ 都没有 → 0 字节占位（应用启动后提示导入）
+#
+# 版本号：打 tag 用 tag 名，其余为 0.1.<构建号>。它会被写进 package.json 与
+# src-tauri/tauri.conf.json，所以安装包文件名、应用内版本、Release 标签三者始终一致。
 name: Build
 
 on:
@@ -81,6 +84,10 @@ jobs:
     name: 打包 ${{ matrix.name }}
     needs: typecheck
     if: github.event_name != 'pull_request'
+    # 版本号在矩阵里算出来（三个矩阵项算出的值相同，互相覆盖无影响）；
+    # release job 直接复用它，避免两处规则漂移
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
     strategy:
       fail-fast: false
       matrix:
@@ -170,6 +177,33 @@ jobs:
           else
             npm run tauri:icon || echo "图标生成失败，继续（可能缺少图标）"
           fi
+
+      # Tauri 用 src-tauri/tauri.conf.json 的 version 命名安装包、写进应用属性（关于页看到的就是它），
+      # 前端读的是 package.json 的 version —— 两边都同步，否则产物永远叫 0.1.0
+      - name: 确定版本号并写入 package.json / tauri.conf.json
+        id: meta
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            v="${GITHUB_REF_NAME#v}"
+          else
+            v="${INPUT_VERSION#v}"
+            v="${v:-0.1.${GITHUB_RUN_NUMBER}}"
+          fi
+          echo "version=${v}" >> "$GITHUB_OUTPUT"
+          node -e '
+            const fs = require("fs");
+            const v = process.argv[1];
+            for (const f of ["package.json", "src-tauri/tauri.conf.json"]) {
+              const j = JSON.parse(fs.readFileSync(f, "utf8"));
+              j.version = v;
+              fs.writeFileSync(f, JSON.stringify(j, null, 2) + "\n");
+            }
+            console.log("版本号已写为 " + v);
+          ' "$v"
 
       - name: 编译并打包
         run: npm run tauri:build -- ${{ matrix.args }}
@@ -268,26 +302,20 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      # 决定 Release 的版本号（tag 推送用 tag 本身，其余用填写的版本号或 v0.1.<构建号>）
+      # Release 标签直接用 build job 里算好的版本号，不再单独推导
       - name: 计算版本标签
         id: meta
         shell: bash
         env:
-          INPUT_VERSION: ${{ github.event.inputs.version }}
+          VERSION: ${{ needs.build.outputs.version }}
         run: |
           set -euo pipefail
-          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            tag="${GITHUB_REF_NAME}"
-          else
-            v="${INPUT_VERSION#v}"
-            v="${v:-0.1.${GITHUB_RUN_NUMBER}}"
-            tag="v${v}"
-          fi
+          v="${VERSION#v}"
           {
-            echo "tag=${tag}"
-            echo "title=诗词 ${tag}"
+            echo "tag=v${v}"
+            echo "title=诗词 v${v}"
           } >> "$GITHUB_OUTPUT"
-          echo "本次发布：正式版 ${tag}"
+          echo "本次发布：正式版 v${v}"
 
       - name: 下载全部安装包
         uses: actions/download-artifact@v4
