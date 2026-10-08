@@ -1,0 +1,2 @@
+# 此目录用于存放随包分发的 poetry_index.db（约 216MB，不入 Git）。
+# 由 scripts/fetch-db.mjs 获取；缺失时脚本会写入 0 字节占位文件，保证 Tauri 打包不失败。

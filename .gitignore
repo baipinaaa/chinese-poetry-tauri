@@ -1,0 +1,27 @@
+# 依赖
+node_modules/
+
+# 构建产物
+dist/
+src-tauri/target/
+src-tauri/gen/
+
+# 数据库：体积约 216MB，不入库；由 scripts/fetch-db.mjs 获取
+src-tauri/resources/*.db
+src-tauri/resources/*.db-shm
+src-tauri/resources/*.db-wal
+src-tauri/resources/*.sqlite
+
+# 图标：仓库内已内置 src-tauri/icons（npm run tauri:icon 生成），随代码提交以免 CI 依赖生成
+# 手机端图标用不上，本地删除后勿再生成：src-tauri/icons/android/ 与 src-tauri/icons/ios/
+src-tauri/icons/android/
+src-tauri/icons/ios/
+
+# 日志/临时
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+.env
+.env.local
+*.tsbuildinfo

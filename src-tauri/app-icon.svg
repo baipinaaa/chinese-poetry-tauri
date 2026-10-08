@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  应用图标（纯矢量几何，不含文字，避免 CI 渲染时缺字体）。
+  设计：墨色圆角底 + 米色宣纸 + 竖排书简纹 + 一轮朱红明月。
+  由 CI 执行 `npx tauri icon src-tauri/app-icon.svg` 生成各平台图标。
+-->
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="ink" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#243043"/>
+      <stop offset="60%" stop-color="#16202e"/>
+      <stop offset="100%" stop-color="#0d141d"/>
+    </linearGradient>
+    <linearGradient id="paper" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fbf6ea"/>
+      <stop offset="100%" stop-color="#eadfc6"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 外层墨色圆角底 -->
+  <rect x="0" y="0" width="1024" height="1024" rx="224" fill="url(#ink)"/>
+
+  <!-- 朱红明月 -->
+  <circle cx="712" cy="300" r="112" fill="#c8503c" opacity="0.92"/>
+
+  <!-- 宣纸书简 -->
+  <g transform="translate(256 216)">
+    <rect x="0" y="0" width="512" height="592" rx="56" fill="url(#paper)"/>
+    <g stroke="#3d4a5c" stroke-linecap="round" fill="none">
+      <line x1="112" y1="120" x2="400" y2="120" stroke-width="34"/>
+      <line x1="112" y1="228" x2="400" y2="228" stroke-width="34"/>
+      <line x1="112" y1="336" x2="400" y2="336" stroke-width="34"/>
+      <line x1="112" y1="444" x2="400" y2="444" stroke-width="34"/>
+    </g>
+    <!-- 左侧装订线 -->
+    <line x1="72" y1="80" x2="72" y2="512" stroke="#c8503c" stroke-width="18" stroke-linecap="round"/>
+  </g>
+</svg>
