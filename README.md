@@ -1,8 +1,8 @@
 # chinese-poetry-tauri
 
-把 [chinese-poetry-site](../chinese-poetry-site)（Next.js + better-sqlite3）改写成的**桌面应用**，技术栈为 **Tauri v2 + Vite + React 18 + TypeScript**，数据仍然是那一个 SQLite 文件。
+把 [https://github.com/daichangya/chinese-poetry-site)（Next.js + better-sqlite3）改写成的**桌面应用**，技术栈为 **Tauri v2 + Vite + React 18 + TypeScript**，数据仍然是那一个 SQLite 文件。
 
-- 原项目：`F:\书房\古诗\chinese-poetry-site`（Web 版，含 216 MB 数据库，不便于推送 Git）
+- 原项目：`https://github.com/daichangya/chinese-poetry-site`（Web 版，含 216 MB 数据库，不便于推送 Git）
 - 本项目：只放源码，数据库按需获取；**编译全部交给 GitHub Actions**（本机无需 Rust / Node 环境）
 
 ---
