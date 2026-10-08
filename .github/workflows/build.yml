@@ -2,7 +2,8 @@
 #
 # 触发方式：
 #   1. 手动：Actions → Build → Run workflow（可选填数据库下载地址）
-#   2. 打标签：git push origin v0.1.0  → 自动编译并创建 Release，附带安装包
+#   2. 打标签：git push origin v0.1.0  → 自动编译并创建 Release，附安装包；
+#      若本次构建取到了真实数据库，也会一并作为 Release 资产上传（方便后续构建直接复用）
 #   3. PR：只做类型检查与前端构建，不打包
 #
 # 数据库（poetry_index.db，约 216MB）不提交进 Git，获取顺序见 scripts/fetch-db.mjs：
@@ -66,7 +67,7 @@ jobs:
       - name: 前端构建（vite build）
         run: npx vite build
 
-  # ---------- 2. 打包（Windows / Linux / macOS 双架构） ----------
+  # ---------- 2. 打包（Windows / Linux / macOS Apple Silicon） ----------
   build:
     name: 打包 ${{ matrix.name }}
     needs: typecheck
@@ -87,10 +88,6 @@ jobs:
             platform: macos-latest
             target: aarch64-apple-darwin
             args: "--target aarch64-apple-darwin"
-          - name: macOS (Intel, dmg)
-            platform: macos-latest
-            target: x86_64-apple-darwin
-            args: "--target x86_64-apple-darwin"
 
     runs-on: ${{ matrix.platform }}
 
@@ -141,6 +138,21 @@ jobs:
       - name: 获取诗词数据库
         run: node scripts/fetch-db.mjs
 
+      # 只有拿到真实库（> 1MB）时才值得随 Release 上传；0 字节占位文件跳过
+      - name: 检查数据库是否为真实库
+        id: dbcheck
+        shell: bash
+        run: |
+          f=src-tauri/resources/poetry_index.db
+          size=$(wc -c < "$f" 2>/dev/null || echo 0)
+          if [ "$size" -gt 1048576 ]; then
+            echo "real=true" >> "$GITHUB_OUTPUT"
+            echo "已获取真实数据库（约 $((size / 1024 / 1024)) MB）"
+          else
+            echo "real=false" >> "$GITHUB_OUTPUT"
+            echo "未获取到真实数据库（当前 $size 字节），跳过 Release 上传"
+          fi
+
       - name: 应用图标（仓库已内置 src-tauri/icons，仅在缺失时由 app-icon.svg 兜底生成）
         shell: bash
         run: |
@@ -180,3 +192,13 @@ jobs:
             src-tauri/target/*/release/bundle/deb/*.deb
             src-tauri/target/*/release/bundle/rpm/*.rpm
             src-tauri/target/*/release/bundle/appimage/*.AppImage
+
+      # 数据库也当作 Release 资产（仅 Linux 那一个矩阵项上传，避免多平台重名冲突）。
+      # 好处：下次构建时 scripts/fetch-db.mjs 可从本仓库最新 Release 自动取到 216MB 的库，
+      # 不用把它提交进 Git，也不用每次手动填下载地址。
+      - name: 数据库随 Release 上传（仅 Linux、且取到真实库时）
+        if: startsWith(github.ref, 'refs/tags/v') && matrix.platform == 'ubuntu-22.04' && steps.dbcheck.outputs.real == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: src-tauri/resources/poetry_index.db

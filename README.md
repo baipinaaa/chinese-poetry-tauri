@@ -48,7 +48,7 @@ git push -u origin main
 | --- | --- |
 | Windows x64 | `…-setup.exe`（NSIS 安装器） |
 | Linux x64 | `.deb` + `.AppImage` |
-| macOS（Apple Silicon / Intel） | `.dmg` |
+| macOS（Apple Silicon） | `.dmg`（Intel 版矩阵已移除，以省构建时间） |
 
 想要带数据库的安装包，先把 `poetry_index.db` 放进仓库的 **Release 附件**（新建 Release，拖入文件即可），再次触发构建；或者在 Run workflow 的 `db_url` 输入框里填一个可直链下载的地址（也可以把它存成仓库 Secret `POETRY_DB_URL`）。
 
@@ -59,7 +59,11 @@ git tag v0.1.0 && git push origin v0.1.0
 # → 构建完成后自动生成一个 draft Release，安装包作为附件
 ```
 
-工作流文件：`.github/workflows/build.yml`（含前端类型检查 → 四组打包矩阵）。
+工作流文件：`.github/workflows/build.yml`（含前端类型检查 → 三组打包矩阵：Windows / Linux / macOS Apple Silicon）。
+
+### 数据库与 Release
+
+推送 `v*` 标签触发构建时，若该次构建取到了真实数据库（大于 1 MB），Linux 那一组会把 `poetry_index.db` 一并作为 Release 资产上传（手动触发的构建不会上传）。这样以后再构建时，即使不填 `POETRY_DB_URL`，`scripts/fetch-db.mjs` 也能从本仓库最新 Release 自动取到它——既不占用 Git 仓库体积，也不用每次手填下载地址。
 
 ---
 
