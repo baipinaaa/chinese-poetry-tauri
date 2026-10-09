@@ -11,9 +11,15 @@
 # Release 只在最后那个 release job 里创建一次：三个平台的矩阵任务并发跑，若各自去创建 Release
 # 会互相覆盖（draft 版按 tag 查不到，会生成多个同名草稿），所以先各自上传构建产物，再统一发布。
 #
-# 数据库（poetry_index.db，约 216MB）不提交进 Git，获取顺序见 scripts/fetch-db.mjs：
+# 数据库（poetry_index.db，约 480MB）不提交进 Git，获取顺序见 scripts/fetch-db.mjs：
 #   ① 本机已有文件  ② POETRY_DB_URL（手动触发时的 db_url 输入或仓库 Secret）
 #   ③ 本仓库最新 Release 里的 poetry_index.db 资产  ④ 都没有 → 0 字节占位（应用启动后提示导入）
+#   ⑤ 本次构建跑了 data job（build_db=true）时，直接用云端刚建好的库，不再走 ①②③
+#
+# 云端重建数据库（可选，默认不跑）：手动触发时把 build_db 设为 true，并给出数据源压缩包地址
+# （sources_url 输入或 Secret POETRY_SOURCES_URL，包内需含 gushiwen-main/、poems-db-master/、
+#   chinese-gushiwen-master/ 三个目录）。data job 会先跑 Python 管线（scripts/build_db.py）建库，
+# 三平台打包直接复用该库，并作为 Release 附件发布（之后 fetch-db.mjs 即可自动复用）。
 #
 # 版本号：打 tag 用 tag 名，其余为 0.1.<构建号>。它会被写进 package.json 与
 # src-tauri/tauri.conf.json，所以安装包文件名、应用内版本、Release 标签三者始终一致。
@@ -28,6 +34,14 @@ on:
         default: ""
       version:
         description: "Release 版本号，如 0.1.0（留空则自动用 0.1.<构建号>）"
+        required: false
+        default: ""
+      build_db:
+        description: "是否在云端重建数据库（true/false；需要数据源压缩包地址）"
+        required: false
+        default: "false"
+      sources_url:
+        description: "数据源压缩包（gushiwen-main/ + poems-db-master/ + chinese-gushiwen-master/）下载地址；留空用 Secret POETRY_SOURCES_URL"
         required: false
         default: ""
   push:
@@ -52,6 +66,81 @@ env:
   CI: true
 
 jobs:
+  # ---------- 0. （可选）云端重建数据库：仅当 build_db=true 时运行 ----------
+  # 本机建好库再上传 Release 是更省事的主路径；这个 job 是给“没有本地构建条件”的场景用的。
+  # 产物名固定为 db-poetry，与 build job 里 Linux 那组上传的临时产物同名，
+  # 因此那组在 build_db=true 时会自动跳过上传，避免同名 artifact 冲突。
+  data:
+    name: 构建数据库（可选）
+    if: github.event_name == 'workflow_dispatch' && inputs.build_db == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # chinese-poetry 侧（诗集/标签/朝代/拼音）来自旧库，stage_final 的 --old-db 也用它
+      - name: 获取旧库（chinese-poetry 侧基础库）
+        run: node scripts/fetch-db.mjs --out _build/old_poetry_index.db
+
+      - name: 检查旧库是否可用
+        shell: bash
+        run: |
+          f=_build/old_poetry_index.db
+          size=$(wc -c < "$f" 2>/dev/null || echo 0)
+          echo "旧库大小：$size 字节"
+          if [ "$size" -le 1048576 ]; then
+            echo "::error::未拿到旧库：请配置 POETRY_DB_URL，或先发一次带 poetry_index.db 的 Release"
+            exit 1
+          fi
+
+      - name: 下载并解包数据源（gushiwen / poems-db / chinese-gushiwen）
+        shell: bash
+        env:
+          SOURCES_URL: ${{ github.event.inputs.sources_url || secrets.POETRY_SOURCES_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SOURCES_URL:-}" ]; then
+            echo "::error::未提供数据源地址：把 gushiwen-main/ + poems-db-master/ + chinese-gushiwen-master/ 打成 data-sources.tar.gz 上传后，填 sources_url 或配置 Secret POETRY_SOURCES_URL"
+            exit 1
+          fi
+          mkdir -p _sources
+          curl -fL --retry 3 --retry-delay 5 -o data-sources.tar.gz "$SOURCES_URL"
+          tar -xzf data-sources.tar.gz -C _sources
+          ls -la _sources
+
+      # 纯标准库实现（无第三方依赖），GUSHI_DATA_DIR 指定数据源目录
+      - name: 构建数据库（scripts/build_db.py --stage all --fts）
+        env:
+          GUSHI_DATA_DIR: ${{ github.workspace }}/_sources
+        run: python scripts/build_db.py --stage all --old-db _build/old_poetry_index.db --out _build/poetry_index.db --fts
+
+      - name: 校验数据库（表与行数）
+        run: |
+          python - <<'PY'
+          import sqlite3, os
+          p = "_build/poetry_index.db"
+          print(f"库大小：{os.path.getsize(p)/1024/1024:.1f} MB")
+          c = sqlite3.connect(p)
+          expect = {"poems": 400000, "authors": 20000, "dynasties": 20, "poem_content": 400000, "poems_fts": 400000}
+          for t, low in expect.items():
+              n = c.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+              print(f"{t}: {n:,}")
+              assert n > low, t
+          print("db-poetry ok: " + ", ".join(sorted(r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"))))
+          PY
+
+      - name: 上传数据库产物（供打包与发布复用）
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-poetry
+          path: _build/poetry_index.db
+          compression-level: 0
+          retention-days: 1
+
   # ---------- 1. 前端类型检查（快速失败，不必等 Rust 编译） ----------
   typecheck:
     name: 类型检查 / 前端构建
@@ -151,8 +240,32 @@ jobs:
       - name: 安装前端依赖
         run: npm install --no-audit --no-fund
 
-      - name: 获取诗词数据库
-        run: node scripts/fetch-db.mjs
+      # 优先用本次 data job 建好的库；没有就跑 scripts/fetch-db.mjs 按 ①②③ 取，实在没有就放 0 字节占位
+      - name: 尝试下载本次云端构建的数据库
+        id: dbfromdata
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: db-poetry
+          path: _db_from_data
+
+      - name: 准备诗词数据库
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p src-tauri/resources
+          size=0
+          if [ -f _db_from_data/poetry_index.db ]; then
+            size=$(wc -c < _db_from_data/poetry_index.db)
+          fi
+          if [ "$size" -gt 1048576 ]; then
+            cp _db_from_data/poetry_index.db src-tauri/resources/poetry_index.db
+            echo "使用本次云端构建的数据库（约 $((size / 1024 / 1024)) MB）"
+          else
+            echo "本次没有 data job 产物，改走 scripts/fetch-db.mjs"
+            rm -rf _db_from_data
+            node scripts/fetch-db.mjs
+          fi
 
       # 只有拿到真实库（> 1MB）时才值得随 Release 上传；0 字节占位文件跳过
       - name: 检查数据库是否为真实库
@@ -287,7 +400,7 @@ jobs:
       # 不用把它提交进 Git，也不用每次手动填下载地址。
       # retention-days: 1 —— artifact 只当中转站，发完就不用留着占存储配额。
       - name: 上传数据库供发布使用（仅 Linux、且取到真实库时）
-        if: matrix.platform == 'ubuntu-22.04' && steps.dbcheck.outputs.real == 'true' && steps.dbasset.outputs.existing == '0'
+        if: matrix.platform == 'ubuntu-22.04' && steps.dbcheck.outputs.real == 'true' && steps.dbasset.outputs.existing == '0' && inputs.build_db != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: db-poetry

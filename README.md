@@ -1,17 +1,20 @@
 # chinese-poetry-tauri
 
-把 [https://github.com/daichangya/chinese-poetry-site)（Next.js + better-sqlite3）改写成的**桌面应用**，技术栈为 **Tauri v2 + Vite + React 18 + TypeScript**，数据仍然是那一个 SQLite 文件。
+把 [chinese-poetry-site](https://github.com/daichangya/chinese-poetry-site)（Next.js + better-sqlite3）改写成的**桌面应用**，技术栈为 **Tauri v2 + Vite + React 18 + TypeScript**，数据仍然是一个 SQLite 文件。
 
 - 原项目：`https://github.com/daichangya/chinese-poetry-site`（Web 版，含 216 MB 数据库，不便于推送 Git）
-- 本项目：只放源码，数据库按需获取；**编译全部交给 GitHub Actions**（本机无需 Rust / Node 环境）
+- 本项目：只放源码 + 数据库合成管线；**编译全部交给 GitHub Actions**（本机无需 Rust 环境）
+- 数据库由 `scripts/build_db.py` 把三份公开数据合成：译文 / 注释 / 赏析取自 gushiwen 与 `poems-db`，诗 + 作者 + 朝代 + 标签 + 拼音取自原项目库（老库本身不含译文，这正是重建数据库的原因）
 
 ---
 
 ## 1. 数据：`poetry_index.db`
 
-诗词数据全部来自单个 SQLite 文件 `poetry_index.db`（约 216 MB）。它**不进 Git**（超过 GitHub 单文件 100 MB 限制）。
+诗词数据全部来自单个 SQLite 文件 `poetry_index.db`。合成后的库约 **480 MB**（474,270 首诗 / 22,649 位作者 / 21 个朝代 / 475,292 条标签关联），**不进 Git**（远超 GitHub 单文件 100 MB 限制）。
 
-仓库里保留了 `src-tauri/resources/poetry_index.db` 作为**0 字节占位文件**：Tauri 打包时要求 `bundle.resources` 里声明的路径存在，缺了会直接报错，所以用一个空文件占位（`build.rs` 的 `tauri_build::build()` 有 `rerun-if-changed`，换成真实文件后会被重新打进包）。
+### 1.1 拿现成库（四种方式，优先级从高到低）
+
+`src-tauri/resources/poetry_index.db` 本身不进 Git（`.gitignore` 已排除）；但 Tauri 打包要求 `bundle.resources` 里声明的路径存在，缺了会直接报错，所以 `npm run fetch:db` 在拿不到真库时会写一个 **0 字节占位文件**（`build.rs` 的 `tauri_build::build()` 有 `rerun-if-changed`，换成真实文件后会被重新打进包）。仓库里只保留 `src-tauri/resources/.gitkeep`。
 
 获取数据库的四种方式（优先级从高到低）：
 
@@ -22,7 +25,41 @@
 | ③ 仓库 Release | 把 `poetry_index.db` 作为附件放进本仓库的**最新正式 Release**（正式版构建会自动做这件事），CI 即可自动拉取
 | ④ 手动下载 | 手动拷到 `src-tauri/resources/poetry_index.db` |
 
-> 数据库由原项目的 `scripts/seed_db.ts` 从 `chinese-poetry-md` 目录构建；也可以直接从原项目 `public/data/poetry_index.db` 复制一份。
+> 原项目的库由 `scripts/seed_db.ts` 从 `chinese-poetry-md` 目录构建，也可以直接从原项目 `public/data/poetry_index.db` 复制一份。
+
+### 1.2 自己合成（推荐：带译文 / 注释 / 赏析）
+
+`scripts/build_db.py`（Python 3.10+，**只用标准库，无需 pip install**）分两阶段建库，把三份公开数据合到一起：
+
+```
+<data-dir>/gushiwen-main/gushiwen.json.gz                 # 37.6 万首的译文 / 注释 / 赏析
+<data-dir>/poems-db-master/poems[0-9].json                 # 标题与鉴赏 / 注释
+<data-dir>/chinese-gushiwen-master/{guwen,writer}/*.json    # 文言文正文、作者简介
+```
+
+```bash
+# ① 解析三个数据源，产出中间库 _build/sources.db（约 279 MB，全量约 2.5 分钟）
+python scripts/build_db.py --stage sources --data-dir /path/to/data-dir
+
+# ② 与旧库（chinese-poetry 侧的诗集 / 标签 / 朝代 / 拼音）合并，产出 _build/poetry_index.db
+python scripts/build_db.py --stage final --old-db /path/to/old_poetry_index.db --out _build/poetry_index.db
+
+# ③ 建全文检索倒排索引（474,270 行，约 1 分钟，搜索从秒级变毫秒级）
+python scripts/build_db.py --stage fts --out _build/poetry_index.db
+
+# 也可以一条命令跑完（= sources + final + fts）
+python scripts/build_db.py --stage all --old-db /path/to/old_poetry_index.db --out _build/poetry_index.db --fts
+```
+
+参数：`--data-dir`（默认取环境变量 `GUSHI_DATA_DIR`，再不行取仓库同级的 `gushi-data/`）、`--old-db`、`--out`、`--limit`（调试用，限制源文件读取条数）、`--fts`。
+
+`--stage sources` 会在命令行打印逐项统计（各源命中数、译文 / 注释 / 赏析非空数、标题清洗数），建完库可以抽查：
+
+```bash
+python -c "import sqlite3;c=sqlite3.connect('_build/poetry_index.db');print({t:c.execute(f'SELECT COUNT(*) FROM {t}').fetchone()[0] for t in ('poems','authors','dynasties','poem_content','poems_fts')})"
+```
+
+拼音数据由 `scripts/gen-pinyin-dict.mjs` 从两侧已有拼音反推成字典 `scripts/data/pinyin.dict.json`（252 KB），`scripts/verify-pinyin.mjs` 校验覆盖率（实测 99.77% / 99.98%），运行时由 `src/lib/pinyin_display.ts` 用 `pinyin-pro` 渲染。
 
 如果最终安装包里带的是 0 字节占位文件，应用启动时会显示**导入引导页**，让用户自己选择本机的 `poetry_index.db`（`src/components/DbGate.tsx`），不会白屏。
 
@@ -95,6 +132,19 @@ chinese-poetry_0.1.0_windows-x64-portable/
 
 ---
 
+### 云端重建数据库（可选，用于“本机没有构建条件”时）
+
+不想在本机跑 Python 建库，可以让 CI 先建库再打包：Actions → Run workflow，把 `build_db` 填 `true`，`sources_url` 填数据源压缩包地址（包内需含 `gushiwen-main/`、`poems-db-master/`、`chinese-gushiwen-master/` 三个目录；也可以存成仓库 Secret `POETRY_SOURCES_URL`）。
+
+```bash
+tar -czf data-sources.tar.gz gushiwen-main poems-db-master chinese-gushiwen-master
+# 传到任一直链可用的地方（Release 附件、对象存储…），把地址填进 sources_url
+```
+
+这时工作流会先跑 `data` job：拉旧库（`scripts/fetch-db.mjs --out _build/old_poetry_index.db`）→ 下载并解包数据源 → `build_db.py --stage all --fts` → 校验行数 → 上传 `db-poetry` 产物；随后三平台打包**直接复用这个库**（不再走 ①②③），发布 Release 时也把它作为附件挂上（之后 `fetch-db.mjs` 就能自动复用，省掉 `sources_url`）。
+
+---
+
 ## 3. 本地开发（可选，需要 Node 20 + Rust 1.77+）
 
 ```bash
@@ -114,7 +164,12 @@ macOS 需要 Xcode Command Line Tools；Linux 需要 `libwebkit2gtk-4.1-dev` 等
 chinese-poetry-tauri/
 ├── .github/workflows/build.yml   # 三平台打包 + Release
 ├── scripts/
-│   ├── fetch-db.mjs              # 数据库获取（本地/URL/Release/占位）
+│   ├── build_db.py               # 三源合成数据库（sources → final → fts）
+│   ├── lib/jsonstream.py         # 流式 JSON 解析（大文件低内存）
+│   ├── gen-pinyin-dict.mjs       # 拼音字典生成（从两侧已有拼音反推）
+│   ├── verify-pinyin.mjs         # 拼音覆盖率校验
+│   ├── data/pinyin.dict.json     # 生成的拼音字典（252 KB）
+│   ├── fetch-db.mjs              # 数据库获取（本地 / URL / Release / 占位）
 │   └── verify-db.mjs             # 数据库完整性校验（表、行数、抽样）
 ├── src/                          # 前端（React + Vite）
 │   ├── lib/
@@ -164,12 +219,15 @@ chinese-poetry-tauri/
 - 数据库以只读方式打开（Rust 侧只放行 `SELECT`/`WITH` 开头的语句），应用不会修改原始数据文件。
 - 数据库缺失或仍是 0 字节占位文件时，启动后会显示导入引导页，不会崩溃或白屏。
 - 安装包**未做代码签名与公证**：Windows 可能出现 SmartScreen 提示，macOS 首次需右键 →「打开」。
-- 安装包体积约 15–25 MB（不含数据库）；把数据库打进包会让安装包达到 200 MB+，这是有意的取舍项 —— 当前默认走"外部数据库 + 首次导入引导"。
+- 安装包体积约 15–25 MB（不含数据库）；默认走“外部数据库 + 首次导入引导”，数据库（约 480 MB）作为 Release 附件单独分发。
+- 译文 / 注释 / 赏析只覆盖有源数据的部分：474,270 首里译文 10,416 首、注释 10,255 首、赏析 8,547 首（源数据上限），其余显示“暂无译文”。
 - 未包含原项目的 SSG 预渲染、图片优化等 Web 专属能力。
 
 ## 7. 当前状态
 
+- 数据库管线：三源合成已在本机跑通（`_build/sources.db` 278.6 MB / 306,379 行；`_build/poetry_index.db` 483.7 MB，poems 474,270、authors 22,649、dynasties 21、poem_rich 11,151、poems_fts 474,270）。
 - 前端：`tsc --noEmit` 无报错，`npm run build` 可产出 `dist/`（约 0.9 MB，含 opencc-js 简繁词库）。
+- 搜索已切到 FTS5 倒排索引（`poem_rich` 视图 + `poems_fts`），原先 `LIKE` + JOIN 的秒级查询降到毫秒级；详情页新增译注赏析侧栏（`src/components/PoemDetailSidebar.tsx`），搜索页与诗集页联动 `has_content` 条件。
 - GitHub Actions 已在云端跑通一次全平台构建（[run 37754749318](https://github.com/baipinaaa/chinese-poetry-tauri/actions/runs/37754749318)：类型检查、Windows NSIS、Linux deb+AppImage、macOS dmg 全部成功）。那次没有产出 Release，因为发布逻辑当时只在 `v*` 标签下触发；现已改为三种触发统一发布（见上文）。
 - 那次构建没有提供数据库地址，所以安装包里带的是 0 字节占位文件，应用启动后走导入引导页。
 - 仓库不含数据库与 `dist/`、`node_modules/`、`src-tauri/target/`，仓库体积约 2 MB。

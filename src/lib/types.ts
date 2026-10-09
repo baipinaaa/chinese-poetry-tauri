@@ -68,8 +68,12 @@ export interface Author {
   slug: string;
   name: string;
   poem_count: number;
-  /** 作者简介，来自 bio.md 正文 */
+  /** 作者简介，来自 bio.md 正文（可能是 gzip BLOB，由 db 层解压） */
   description?: string;
+  /** 出生年，如「1125」或「前200」（来自 gushiwen author_intro 解析） */
+  birth_year?: string | null;
+  /** 卒年，如「1210」或「前200」 */
+  death_year?: string | null;
 }
 
 /** 朝代 */
@@ -77,6 +81,12 @@ export interface Dynasty {
   slug: string;
   name: string;
   poem_count: number;
+  /** 起始年，如「618」「前202」 */
+  start_year?: string | null;
+  /** 结束年，如「907」 */
+  end_year?: string | null;
+  /** 列表副标题「618—907」，由 db 层用 formatYearPeriod 生成 */
+  period?: string;
 }
 
 /** 标签 */

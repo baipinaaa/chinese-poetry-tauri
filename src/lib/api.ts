@@ -187,10 +187,13 @@ export function fetchRhythmics(): Promise<Rhythmic[]> {
   return getRhythmics();
 }
 
-/** 随机取 n 首（列表信息，一次查询），复刻原 GET /api/poems/random */
-export async function fetchRandomPoems(n = 10): Promise<RandomPoemItem[]> {
+/**
+ * 随机取 n 首（列表信息，一次查询），复刻原 GET /api/poems/random
+ * @param richOnly 为 true 时只从 poem_rich 视图取（有译文/注释/赏析的名篇），用于首页推荐
+ */
+export async function fetchRandomPoems(n = 10, richOnly = false): Promise<RandomPoemItem[]> {
   const safeN = Math.min(50, Math.max(1, Math.trunc(n) || 10));
-  const rows = await getRandomPoemsForList(safeN);
+  const rows = await getRandomPoemsForList(safeN, richOnly);
   return rows.map((r) => ({
     slug: r.slug,
     title: r.title,

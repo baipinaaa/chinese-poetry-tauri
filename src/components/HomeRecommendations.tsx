@@ -21,7 +21,8 @@ export default function HomeRecommendations({ count = DEFAULT_COUNT }: { count?:
 
     (async () => {
       try {
-        const data = await fetchRandomPoems(count);
+        // 首页推荐走 poem_rich：只挑有译文/注释/赏析的名篇
+        const data = await fetchRandomPoems(count, true);
         if (cancelled) return;
         if (!Array.isArray(data) || data.length === 0) {
           setLoading(false);

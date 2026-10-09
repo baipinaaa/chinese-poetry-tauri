@@ -6,7 +6,7 @@ dist/
 src-tauri/target/
 src-tauri/gen/
 
-# 数据库：体积约 216MB，不入库；由 scripts/fetch-db.mjs 获取
+# 数据库：约 480MB，不入库；由 scripts/fetch-db.mjs 获取，或 scripts/build_db.py 本地合成
 src-tauri/resources/*.db
 src-tauri/resources/*.db-shm
 src-tauri/resources/*.db-wal
@@ -19,6 +19,10 @@ src-tauri/icons/ios/
 
 # 日志/临时
 *.log
+*.pyc
+__pycache__/
+_build/
+_scratch/
 npm-debug.log*
 .DS_Store
 Thumbs.db

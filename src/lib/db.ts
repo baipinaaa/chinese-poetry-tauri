@@ -365,8 +365,15 @@ export async function getAuthors(offset = 0, limit = 10000): Promise<Author[]> {
 }
 
 export async function getAuthorBySlug(slug: string): Promise<Author | undefined> {
-  const row = await queryOne<{ slug: string; name: string; poem_count: number; description: unknown }>(
-    "SELECT slug, name, poem_count, description FROM authors WHERE slug = ?",
+  const row = await queryOne<{
+    slug: string;
+    name: string;
+    poem_count: number;
+    description: unknown;
+    birth_year: string | null;
+    death_year: string | null;
+  }>(
+    "SELECT slug, name, poem_count, description, birth_year, death_year FROM authors WHERE slug = ?",
     [slug]
   );
   if (!row) return undefined;
@@ -376,7 +383,25 @@ export async function getAuthorBySlug(slug: string): Promise<Author | undefined>
     name: row.name,
     poem_count: row.poem_count,
     description: description ?? undefined,
+    birth_year: row.birth_year ?? undefined,
+    death_year: row.death_year ?? undefined,
   };
+}
+
+/**
+ * 按「标题 + 作者名」查诗，供详情页 slug 回退链使用（命中 idx_poems_title_author 索引）。
+ * 详情页 URL 目前只携带 slug（由管线统一生成），此函数保留给从旧库迁移的收藏 / 外部链接。
+ */
+export async function getPoemByTitleAuthor(title: string, authorName: string): Promise<Poem | undefined> {
+  const t = title.trim();
+  const a = authorName.trim();
+  if (!t || !a) return undefined;
+  const row = await queryOne<{ slug: string }>(
+    `SELECT p.slug FROM poems p JOIN authors a ON a.slug = p.author_slug
+     WHERE p.title = ? AND a.name = ? LIMIT 1`,
+    [t, a]
+  );
+  return row ? getPoemBySlug(row.slug) : undefined;
 }
 
 /** 按姓名精确匹配作者，供 Nav 诗人搜索跳转作者页使用。 */
@@ -391,11 +416,51 @@ export async function getAuthorByName(name: string): Promise<Author | undefined>
   return { slug: row.slug, name: row.name, poem_count: row.poem_count };
 }
 
+/**
+ * 把朝代起止年格式化为「1127—1279」。
+ * 数据源用「前221」表示公元前，这里兼容「公元前221」写法并去掉重复前缀；缺一端时只显示现存端。
+ */
+export function formatYearPeriod(start?: string | null, end?: string | null): string | undefined {
+  const clean = (v?: string | null) => (v ?? "").trim().replace(/^公元前/, "前");
+  const s = clean(start);
+  const e = clean(end);
+  if (!s && !e) return undefined;
+  if (!s || !e || s === e) return s || e;
+  return `${s}—${e}`;
+}
+
+/** 把生卒年格式化为「（1125—1210）」；只有一端时用「?」占位。 */
+export function formatLifespan(birth?: string | null, death?: string | null): string | undefined {
+  const clean = (v?: string | null) => (v ?? "").trim().replace(/^公元前/, "前");
+  const b = clean(birth);
+  const d = clean(death);
+  if (!b && !d) return undefined;
+  if (b && d) return b === d ? `（${b}）` : `（${b}—${d}）`;
+  return b ? `（${b}—?）` : `（?—${d}）`;
+}
+
+/**
+ * 朝代列表：读 dynasties 表（含起止年）。
+ * 硬编码的朝代名/年份已移除，年份一律由 start_year / end_year 两两相减风格拼接（见 formatYearPeriod）。
+ */
 export async function getDynasties(): Promise<Dynasty[]> {
-  const rows = await query<{ slug: string; name: string; poem_count: number }>(
-    "SELECT slug, name, poem_count FROM dynasties ORDER BY poem_count DESC"
+  const rows = await query<{
+    slug: string;
+    name: string;
+    poem_count: number;
+    start_year: string | null;
+    end_year: string | null;
+  }>(
+    "SELECT slug, name, poem_count, start_year, end_year FROM dynasties ORDER BY poem_count DESC"
   );
-  return rows.map((r) => ({ slug: r.slug, name: getDynastyDisplayName(r.slug) || r.name, poem_count: r.poem_count }));
+  return rows.map((r) => ({
+    slug: r.slug,
+    name: getDynastyDisplayName(r.slug) || r.name,
+    poem_count: r.poem_count,
+    start_year: r.start_year ?? undefined,
+    end_year: r.end_year ?? undefined,
+    period: formatYearPeriod(r.start_year, r.end_year),
+  }));
 }
 
 export async function getTags(): Promise<Tag[]> {
@@ -459,32 +524,99 @@ export async function getPoemsByDynasty(dynastySlug: string, offset = 0, limit =
   return rows.map(rowToListPoem);
 }
 
-/** 关键词搜索：标题或作者名 LIKE %q%；分页；author 通过 JOIN authors 取 name */
-export async function searchPoems(q: string, offset = 0, limit = 50): Promise<PoemSearchItem[]> {
-  const pattern = `%${q}%`;
-  const rows = await query<{ slug: string; title: string; author_name: string; dynasty_name: string }>(
-    `SELECT p.slug, p.title, a.name AS author_name, d.name AS dynasty_name
-     FROM poems p
-     JOIN authors a ON p.author_slug = a.slug
-     JOIN dynasties d ON p.dynasty_slug = d.slug
-     WHERE p.title LIKE ? OR a.name LIKE ?
-     ORDER BY p.slug LIMIT ? OFFSET ?`,
-    [pattern, pattern, limit, offset]
-  );
-  return rows.map((r) => ({
+/**
+ * 切分成「单字 + 相邻字对」——必须与 scripts/build_db.py 的 gram_text() 完全一致，
+ * 否则索引里的 token 与查询 token 对不上。\p{L}\p{N}_ 等价 Python 的 \w（Unicode）。
+ */
+function gramTokens(s: string): string[] {
+  const chars = Array.from(s).filter((c) => /[\p{L}\p{N}_]/u.test(c));
+  const toks = [...chars];
+  for (let i = 0; i + 1 < chars.length; i++) toks.push(chars[i] + chars[i + 1]);
+  return toks;
+}
+
+/** 把用户输入包成 FTS5 查询：所有 token 用 AND 组合（单字保证每字出现，字对保证相邻） */
+function toFtsMatch(q: string): string {
+  const toks = gramTokens(q);
+  if (toks.length === 0) return '""';
+  return toks.map((t) => `"${t.replace(/"/g, '""')}"`).join(" AND ");
+}
+
+function toSearchItem(r: { slug: string; title: string; author_name: string; dynasty_name: string }): PoemSearchItem {
+  return {
     slug: r.slug,
     title: r.title,
     author_name: r.author_name,
     dynasty_name: r.dynasty_name,
     title_pinyin: undefined,
     tags: undefined,
-  }));
+  };
+}
+
+/** FTS5 路径：标题/作者子串命中倒排索引，毫秒级 */
+async function searchPoemsFts(q: string, offset: number, limit: number): Promise<PoemSearchItem[]> {
+  const rows = await query<{ slug: string; title: string; author_name: string; dynasty_name: string }>(
+    `SELECT p.slug, p.title, a.name AS author_name, d.name AS dynasty_name
+     FROM poems_fts f
+     JOIN poems p ON p.rowid = f.rowid
+     JOIN authors a ON p.author_slug = a.slug
+     JOIN dynasties d ON p.dynasty_slug = d.slug
+     WHERE poems_fts MATCH ?
+     ORDER BY rank, p.slug LIMIT ? OFFSET ?`,
+    [toFtsMatch(q), limit, offset]
+  );
+  return rows.map(toSearchItem);
+}
+
+/** LIKE 路径：作者名走 authors 小表（2.2 万行）+ 标题走 poems，避开 JOIN+OR 的全表扫描 */
+async function searchPoemsLike(q: string, offset: number, limit: number): Promise<PoemSearchItem[]> {
+  const pattern = `%${q}%`;
+  const rows = await query<{ slug: string; title: string; author_name: string; dynasty_name: string }>(
+    `SELECT slug, title, author_name, dynasty_name FROM (
+       SELECT p.slug AS slug, p.title AS title, a.name AS author_name, d.name AS dynasty_name
+       FROM poems p
+       JOIN authors a ON p.author_slug = a.slug
+       JOIN dynasties d ON p.dynasty_slug = d.slug
+       WHERE p.author_slug IN (SELECT slug FROM authors WHERE name LIKE ?)
+       UNION
+       SELECT p.slug, p.title, a.name, d.name
+       FROM poems p
+       JOIN authors a ON p.author_slug = a.slug
+       JOIN dynasties d ON p.dynasty_slug = d.slug
+       WHERE p.title LIKE ?
+     ) ORDER BY slug LIMIT ? OFFSET ?`,
+    [pattern, pattern, limit, offset]
+  );
+  return rows.map(toSearchItem);
+}
+
+/**
+ * 关键词搜索：标题或作者名。
+ * 主路径是 FTS5 倒排索引（任何长度查询都是毫秒级）；
+ * 仅当库中缺少 poems_fts（旧库/老 Release）时才回退 LIKE（实测 3~11s）。
+ */
+export async function searchPoems(q: string, offset = 0, limit = 50): Promise<PoemSearchItem[]> {
+  try {
+    return await searchPoemsFts(q, offset, limit);
+  } catch {
+    /* poems_fts 不存在等，回退 LIKE */
+    return await searchPoemsLike(q, offset, limit);
+  }
 }
 
 export async function countSearchPoems(q: string): Promise<number> {
+  try {
+    return await queryNumber("SELECT COUNT(*) AS c FROM poems_fts WHERE poems_fts MATCH ?", [toFtsMatch(q)]);
+  } catch {
+    /* 回退 LIKE */
+  }
   const pattern = `%${q}%`;
   return queryNumber(
-    "SELECT COUNT(*) as c FROM poems p JOIN authors a ON p.author_slug = a.slug WHERE p.title LIKE ? OR a.name LIKE ?",
+    `SELECT COUNT(*) AS c FROM (
+       SELECT p.slug FROM poems p WHERE p.author_slug IN (SELECT slug FROM authors WHERE name LIKE ?)
+       UNION
+       SELECT p.slug FROM poems p WHERE p.title LIKE ?
+     )`,
     [pattern, pattern]
   );
 }
@@ -507,8 +639,12 @@ export async function getRandomPoemSlugs(n: number): Promise<string[]> {
   return rows.map((r) => r.slug);
 }
 
-/** 随机取 n 首诗的列表信息（一次查询，避免 N+1）；用于首页推荐与随机一首 */
-export async function getRandomPoemsForList(n: number): Promise<Array<{
+/**
+ * 随机取 n 首诗的列表信息（一次查询，避免 N+1）。
+ * @param richOnly 为 true 时只从 poem_rich 视图（译文/注释/赏析至少一项非空）随机，用于首页推荐；
+ *                 为 false 时从全量 poems 随机，用于「随机一首」。
+ */
+export async function getRandomPoemsForList(n: number, richOnly = false): Promise<Array<{
   slug: string;
   title: string;
   author_name: string;
@@ -526,7 +662,7 @@ export async function getRandomPoemsForList(n: number): Promise<Array<{
   }>(
     `SELECT p.slug, p.title, p.excerpt, p.rhythmic,
             a.name AS author_name, d.name AS dynasty_name
-     FROM poems p
+     FROM ${richOnly ? "poem_rich pr JOIN poems p ON p.slug = pr.slug" : "poems p"}
      JOIN authors a ON p.author_slug = a.slug
      JOIN dynasties d ON p.dynasty_slug = d.slug
      ORDER BY RANDOM() LIMIT ?`,

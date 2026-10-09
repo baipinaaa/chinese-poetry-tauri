@@ -10,7 +10,7 @@
 
 import { useEffect } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { getAuthorBySlug, getPoemsByAuthorSlug } from "../lib/db";
+import { formatLifespan, getAuthorBySlug, getPoemsByAuthorSlug } from "../lib/db";
 import type { Author, Poem } from "../lib/types";
 import { useAsync } from "../lib/use-async";
 import LayoutWithSidebar from "../components/LayoutWithSidebar";
@@ -71,6 +71,10 @@ export default function AuthorDetailPage() {
   }, [slug, pageStr]);
 
   const authorName = data?.author?.name;
+  /** 生卒年「（1125—1210）」，无数据时为 undefined */
+  const lifespan = data?.author
+    ? formatLifespan(data.author.birth_year, data.author.death_year)
+    : undefined;
 
   useEffect(() => {
     document.title = authorName ? `${authorName} - 诗人` : "未找到";
@@ -107,6 +111,11 @@ export default function AuthorDetailPage() {
             <header>
               <h1 className="font-serif text-2xl font-bold text-primary md:text-3xl">
                 {data.author.name}
+                {lifespan ? (
+                  <span className="ml-3 align-middle text-base font-normal text-text/60">
+                    {lifespan}
+                  </span>
+                ) : null}
               </h1>
               <p className="text-text/70">共 {data.author.poem_count} 首</p>
             </header>

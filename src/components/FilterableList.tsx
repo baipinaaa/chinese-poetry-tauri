@@ -13,6 +13,8 @@ interface ListItem {
   slug: string;
   name: string;
   poem_count: number;
+  /** 可选副标题（朝代的起止年等），显示在名称下方 */
+  subtitle?: string;
 }
 
 interface FilterableListProps {
@@ -60,8 +62,11 @@ export default function FilterableList({
                 to={`${hrefPrefix}${encodeURIComponent(item.name)}`}
                 className="cursor-pointer flex items-baseline justify-between gap-2 rounded-lg border border-secondary/20 p-4 transition-colors duration-200 hover:border-primary hover:bg-secondary/10 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
               >
-                <span className="min-w-0 truncate font-semibold text-text">
-                  {item.name}
+                <span className="flex min-w-0 flex-col">
+                  <span className="truncate font-semibold text-text">{item.name}</span>
+                  {item.subtitle ? (
+                    <span className="truncate text-xs text-text/60">{item.subtitle}</span>
+                  ) : null}
                 </span>
                 <span className="shrink-0 text-sm text-text/60">
                   {item.poem_count} 首

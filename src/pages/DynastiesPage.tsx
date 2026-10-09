@@ -51,7 +51,12 @@ export default function DynastiesPage() {
           <p className="text-text/70">加载失败：{error.message}</p>
         ) : data ? (
           <FilterableList
-            items={data}
+            items={data.map((d) => ({
+              slug: d.slug,
+              name: d.name,
+              poem_count: d.poem_count,
+              subtitle: d.period,
+            }))}
             hrefPrefix="/poems/?dynasty="
             placeholder="搜索朝代…"
             emptyText="暂无数据。去浏览诗文"
