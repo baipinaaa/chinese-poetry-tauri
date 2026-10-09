@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import html
 import json
 import os
 import re
@@ -37,29 +38,37 @@ BUILD_DIR = REPO / "_build"
 
 # ---------------------------------------------------------------- 文本清洗
 
-_ENTITIES = {
-    "&nbsp;": " ", "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"',
-    "&#39;": "'", "&ldquo;": "“", "&rdquo;": "”", "&lsquo;": "‘", "&rsquo;": "’",
-    "&hellip;": "…", "&mdash;": "—", "&middot;": "·", "&times;": "×",
-}
 _TAG_RE = re.compile(r"<[^>]+>")
 _TAIL_HINT_RE = re.compile(r"[（(]\s*(?:写|做|找|给|加|补|译|译注|赏析|注释|翻译)[^）)]{0,12}[）)]\s*$")
 _BLANK_RE = re.compile(r"[ \t\u3000\xa0]+")
 _HAN_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
+# gushiwen 的正文里几乎没有 <br/>：段与段之间是用**连续 &nbsp;**（常见两个）分隔的，
+# 而单个 &nbsp; 只是词牌与题名之间的排版空格。两者必须区分，
+# 否则连续 nbsp 被解码成空格后整首诗的段落会连成一行（正文看起来「连在一起没分开」）。
+_NBSP_RUN_RE = re.compile(
+    r"(?i)(?:&nbsp;|&#160;|&#xa0;|\xa0)(?:[ \t\u3000]*(?:&nbsp;|&#160;|&#xa0;|\xa0))+"
+)
+# 句末标点后紧跟的单个 &nbsp; 也是结构分隔（如曲牌记录里「既乐而康。&nbsp;云中君&nbsp;&nbsp;望云中帝服…」
+# 的曲名），否则曲名会粘到上一句末尾。
+_AFTER_PUNCT_NBSP_RE = re.compile(r"(?i)(?<=[。！？!?；;])(?:&nbsp;|&#160;|&#xa0;|\xa0)+")
 
 
 def strip_html(text: str) -> str:
-    """把 gushiwen 的 HTML 片段压成纯文本，块级标签转成换行。"""
+    """把 gushiwen 的 HTML 片段压成纯文本，块级标签与连续 nbsp 转成换行。"""
     if not text:
         return ""
     s = text.replace("\r\n", "\n").replace("\r", "\n")
+    s = _NBSP_RUN_RE.sub("\n", s)  # 连续 &nbsp; = 段落分隔，必须在实体解码之前
+    s = _AFTER_PUNCT_NBSP_RE.sub("\n", s)  # 句末标点后的单个 &nbsp; 同样是分隔
     s = re.sub(r"(?i)<\s*br\s*/?\s*>", "\n", s)
     s = re.sub(r"(?i)</\s*(p|div|li|tr)\s*>", "\n", s)
     s = _TAG_RE.sub("", s)
-    for k, v in _ENTITIES.items():
-        s = s.replace(k, v)
-    s = s.replace("\u3000", " ")
+    s = html.unescape(s)  # 覆盖 &nbsp; &amp; &#39; 等全部实体（比手工映射表全）
+    s = s.replace("\u00a0", " ").replace("\u3000", " ")
     return s
+
+
+_SENT_END_RE = re.compile(r"(?<=[。！？!?])")
 
 
 def paragraphs(text: str) -> List[str]:
@@ -74,6 +83,27 @@ def paragraphs(text: str) -> List[str]:
     return out
 
 
+def poem_lines(text: str) -> List[str]:
+    """正文分行：结构分段优先，剩下的长段按句末标点断句、两句一行。
+
+    gushiwen 的正文 HTML 里大多**没有任何内部分隔**：整首诗（上下阕、各联）被包在
+    一对 <br/> 里，例如「晶帘一片伤心白，云鬟香雾成遥隔。无语问添衣，桐阴月已西。」，
+    结构上拿不到换行信息，只能按句末标点断句；再按诗词排版惯例两句合成一行
+    （一联/一拍一行），否则详情页正文会连成一大片。
+    """
+    out: List[str] = []
+    for para in paragraphs(text):
+        parts = [p.strip() for p in _SENT_END_RE.split(para) if p.strip()]
+        if len(parts) <= 2:
+            out.append(para)
+            continue
+        for i in range(0, len(parts), 2):
+            pair = "".join(parts[i : i + 2]).strip()
+            if pair:
+                out.append(pair)
+    return out
+
+
 def join_paragraphs(lines: Optional[Iterable[str]]) -> Optional[str]:
     if not lines:
         return None
@@ -81,11 +111,18 @@ def join_paragraphs(lines: Optional[Iterable[str]]) -> Optional[str]:
     return text or None
 
 
+def clean_text_value(value: Optional[str]) -> str:
+    """解码 HTML 实体（&nbsp; &amp; &#39; …）并压缩空白，用于标题/作者/朝代等短字段。"""
+    if not value:
+        return ""
+    return _BLANK_RE.sub(" ", html.unescape(str(value))).strip()
+
+
 def clean_title(title: Optional[str]) -> str:
-    """去掉标题尾部的 AI 提示残留，例如「静夜思（写翻译）」。"""
+    """解码实体 + 去掉标题尾部的 AI 提示残留，例如「静夜思（写翻译）」。"""
     if not title:
         return ""
-    t = _BLANK_RE.sub(" ", str(title)).strip()
+    t = _BLANK_RE.sub(" ", html.unescape(str(title))).strip()
     for _ in range(4):
         new = _TAIL_HINT_RE.sub("", t).strip()
         if new == t:
@@ -181,7 +218,7 @@ def read_gushiwen(data_dir: Path, limit: Optional[int]) -> Iterator[Dict[str, An
     n = 0
     for rec in iter_json_records(str(src), compressed=True):
         title = clean_title(rec.get("title"))
-        content = paragraphs(rec.get("content") or "")
+        content = poem_lines(rec.get("content") or "")
         if not title or not content:
             continue
         sons = _sons_map(rec.get("sons"))
@@ -216,8 +253,8 @@ def read_gushiwen(data_dir: Path, limit: Optional[int]) -> Iterator[Dict[str, An
             "src": "gushiwen",
             "src_id": str(rec.get("href") or rec.get("id") or ""),
             "title": title,
-            "author": (rec.get("author") or "").strip() or None,
-            "dynasty": (rec.get("dynasty") or "").strip() or None,
+            "author": clean_text_value(rec.get("author")) or None,
+            "dynasty": clean_text_value(rec.get("dynasty")) or None,
             "body": "\n".join(content),
             "translation": join_paragraphs(trans),
             "annotation": join_paragraphs(anno),
@@ -248,7 +285,7 @@ def read_poems_db(data_dir: Path, limit: Optional[int]) -> Iterator[Dict[str, An
     for f in files:
         for rec in iter_json_records(str(f)):
             title = clean_title(rec.get("name"))
-            content = paragraphs(join_paragraphs(rec.get("content")) or "")
+            content = poem_lines(join_paragraphs(rec.get("content")) or "")
             if not title or not content:
                 continue
             appreciation = list(rec.get("appreciation") or []) + list(rec.get("appreciation_res") or [])
@@ -256,8 +293,8 @@ def read_poems_db(data_dir: Path, limit: Optional[int]) -> Iterator[Dict[str, An
                 "src": "poemsdb",
                 "src_id": str((rec.get("_id") or {}).get("$oid") or rec.get("onlyId") or ""),
                 "title": title,
-                "author": (rec.get("author") or "").strip() or None,
-                "dynasty": (rec.get("dynasty") or "").strip() or None,
+                "author": clean_text_value(rec.get("author")) or None,
+                "dynasty": clean_text_value(rec.get("dynasty")) or None,
                 "body": "\n".join(content),
                 "translation": join_paragraphs(rec.get("translate")),
                 "annotation": join_paragraphs(rec.get("notes")),
@@ -292,15 +329,15 @@ def read_guwen(data_dir: Path, limit: Optional[int]) -> Iterator[Dict[str, Any]]
     for f in files:
         for rec in iter_json_records(str(f)):
             title = clean_title(rec.get("title"))
-            content = paragraphs(rec.get("content") or "")
+            content = poem_lines(rec.get("content") or "")
             if not title or not content:
                 continue
             yield {
                 "src": "guwen",
                 "src_id": str((rec.get("_id") or {}).get("$oid") or ""),
                 "title": title,
-                "author": (rec.get("writer") or "").strip() or None,
-                "dynasty": (rec.get("dynasty") or "").strip() or None,
+                "author": clean_text_value(rec.get("writer")) or None,
+                "dynasty": clean_text_value(rec.get("dynasty")) or None,
                 "body": "\n".join(content),
                 "translation": join_paragraphs(paragraphs(rec.get("translation") or "")),
                 "annotation": join_paragraphs(paragraphs(rec.get("remark") or "")),
@@ -319,7 +356,7 @@ def read_writers(data_dir: Path, limit: Optional[int]) -> Iterator[Dict[str, Any
     n = 0
     for f in files:
         for rec in iter_json_records(str(f)):
-            name = (rec.get("name") or "").strip()
+            name = clean_text_value(rec.get("name"))
             if not name:
                 continue
             intro = strip_html(rec.get("simpleIntro") or "").strip()
@@ -500,8 +537,13 @@ class Pinyin:
 
 
 def norm_key(text: Optional[str]) -> str:
-    """匹配键归一化：只留汉字/字母/数字，去掉标点、空格与「・」。"""
-    return _NON_KEY_RE.sub("", text or "").lower()
+    """匹配键归一化：只留汉字/字母/数字，去掉标点、空格与「・」。
+
+    先解码 HTML 实体：gushiwen 的标题带字面 `&nbsp;`（如「子规&nbsp;[一作…」），
+    解码后与另一源的「子规 [一作…」归一到同一个键，跨源去重才能命中，
+    否则同一首诗会同时以两条记录出现在列表里（用户看到的重复条目）。
+    """
+    return _NON_KEY_RE.sub("", html.unescape(text or "")).lower()
 
 
 def gz(text: Optional[str]) -> Optional[bytes]:
