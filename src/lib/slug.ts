@@ -19,7 +19,10 @@ export function toSlug(text: string): string {
  */
 export function toPinyinToneNum(text: string): string {
   if (!text || !text.trim()) return "";
-  return pinyin(text.trim(), { toneType: "num" });
+  // nonZh: "removed"：只输出汉字的拼音，标点/空格/数字不混入拼音行。
+  // 默认（consecutive）会把标点原样留在拼音串里，既让拼音行出现多余标点，
+  // 又会在按字对齐时占掉一个音节，导致整行错位。
+  return pinyin(text.trim(), { toneType: "num", nonZh: "removed" });
 }
 
 /**

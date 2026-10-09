@@ -1,9 +1,8 @@
 /**
- * 诗词详情页右侧栏：纠错与完善、阅读设置、作者信息、同朝代诗词。
+ * 诗词详情页右侧栏：阅读设置、朗读、作者信息、同朝代诗词。
  * 样式参考 docs/右侧边样式.png。
  * 桌面版移植：next/link → react-router-dom Link；阅读设置改用 src/context/ReadingSettingsContext；
- * 去掉 process.env（桌面端无环境变量，源码仓库地址改为常量）；
- * 外部链接改用 ExternalLink（Tauri 下交给系统浏览器打开）。
+ * 已移除「纠错与完善/内容贡献」入口（离线版无提交能力）。
  * @author daichangya@163.com
  * https://shi-ci.cn
  */
@@ -13,8 +12,9 @@ import { useEffect, useMemo, useState } from "react";
 import type { Poem } from "../lib/types";
 import { useReadingSettings, type PoemFont } from "../context/ReadingSettingsContext";
 import { pinyinNumLineToSymbol } from "../lib/pinyin_display";
+import { getAuthorBySlug } from "../lib/db";
+import { useAsync } from "../lib/use-async";
 import Toggle from "./Toggle";
-import ExternalLink from "./ExternalLink";
 
 function convertToTraditional(text: string, converter: ((s: string) => string) | null): string {
   if (!converter || !text) return text;
@@ -36,63 +36,6 @@ function Card({ children, className = "" }: { children: React.ReactNode; classNa
     <section className={`rounded-lg border border-secondary/20 bg-background p-4 shadow-sm transition-colors duration-200 ${className}`}>
       {children}
     </section>
-  );
-}
-
-/** 纠错与完善：居中深色按钮 + 下方「首次贡献? 点击 查看教程~」，参考右侧边样式图 */
-/** 纠错按钮样式（外链与内部路由共用，样式与原先一致） */
-const CORRECTION_BUTTON_CLASS =
-  "inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg bg-text px-4 py-2.5 text-sm font-medium text-white transition-colors duration-200 hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background";
-
-function CorrectionCard({
-  buttonHref,
-  tutorialHref,
-}: {
-  buttonHref: string;
-  tutorialHref: string;
-}) {
-  /** http(s) 地址 → ExternalLink（Tauri 下用系统浏览器打开）；内部路由（/contribute）→ 继续用 Link */
-  const buttonIsExternal = buttonHref.startsWith("http");
-  const tutorialIsExternal = tutorialHref.startsWith("http");
-  return (
-    <Card>
-      <div className="flex flex-col items-center gap-2 text-center">
-        {buttonIsExternal ? (
-          <ExternalLink
-            href={buttonHref}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={CORRECTION_BUTTON_CLASS}
-          >
-            <PencilIcon />
-            纠错与完善/内容贡献
-          </ExternalLink>
-        ) : (
-          <Link to={buttonHref} className={CORRECTION_BUTTON_CLASS}>
-            <PencilIcon />
-            纠错与完善/内容贡献
-          </Link>
-        )}
-        <span className="text-xs text-text/60">
-          首次贡献? 点击{" "}
-          {tutorialIsExternal ? (
-            <ExternalLink
-              href={tutorialHref}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="cursor-pointer text-primary hover:underline"
-            >
-              查看教程
-            </ExternalLink>
-          ) : (
-            <Link to={tutorialHref} className="cursor-pointer text-primary hover:underline">
-              查看教程
-            </Link>
-          )}
-          ~
-        </span>
-      </div>
-    </Card>
   );
 }
 
@@ -255,12 +198,22 @@ function ReadAloudCard({ poem }: { poem: Poem }) {
   );
 }
 
-/** 作者信息：圆形头像（前两字）+ 姓名、拼音、历 + 朝代，参考右侧边样式图 */
+/** 作者信息：圆形头像（前两字）+ 姓名、拼音、生卒年、朝代 + 诗人简介（与诗人详情页同源） */
 function AuthorCard({ poem }: { poem: Poem }) {
+  // 简介、生卒年在 authors 表里，按作者 slug 异步拉取；失败或缺失时只显示基础信息
+  const { data: author } = useAsync(
+    () => getAuthorBySlug(poem.authorSlug),
+    [poem.authorSlug],
+  );
   const initials = [...poem.author].slice(0, 2).join("") || poem.author;
   const pinyinDisplay = poem.authorPinyin
     ? pinyinNumLineToSymbol(poem.authorPinyin)
     : "";
+  const birth = (author?.birth_year ?? "").trim();
+  const death = (author?.death_year ?? "").trim();
+  const lifeSpan = birth || death ? `${birth || "?"}年—${death || "?"}年` : "";
+  const description = (author?.description ?? "").trim();
+
   return (
     <Card>
       <div className="flex items-start gap-3">
@@ -280,22 +233,37 @@ function AuthorCard({ poem }: { poem: Poem }) {
           {pinyinDisplay && (
             <p className="mt-0.5 text-sm text-text/70">{pinyinDisplay}</p>
           )}
-          <p className="mt-1 flex items-center gap-1.5 text-xs text-text/60">
-            <CalendarIcon />
-            <span>?年一?年</span>
-            {poem.dynasty && <span> · {poem.dynasty}</span>}
-          </p>
+          {(lifeSpan || poem.dynasty) && (
+            <p className="mt-1 flex items-center gap-1.5 text-xs text-text/60">
+              <CalendarIcon />
+              {lifeSpan && <span>{lifeSpan}</span>}
+              {poem.dynasty && <span> · {poem.dynasty}</span>}
+            </p>
+          )}
         </div>
       </div>
+      {description && (
+        <p
+          className="mt-3 whitespace-pre-line text-sm leading-relaxed text-text/80"
+          style={{
+            display: "-webkit-box",
+            WebkitLineClamp: 6,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+          }}
+        >
+          {description}
+        </p>
+      )}
+      <p className="mt-3 text-xs">
+        <Link
+          to={`/authors/${poem.authorSlug}`}
+          className="cursor-pointer text-primary hover:underline"
+        >
+          {description ? "查看诗人详情 →" : "查看诗人详情"}
+        </Link>
+      </p>
     </Card>
-  );
-}
-
-function PencilIcon() {
-  return (
-    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-    </svg>
   );
 }
 
@@ -307,30 +275,14 @@ function CalendarIcon() {
   );
 }
 
-const CONTRIBUTE_PATH = "/contribute";
-
-/** 桌面版无环境变量：未配置时使用 .md 仓库（纠错与完善指向该仓库下的 author_slug/slug.md） */
-const DEFAULT_SOURCE_REPO = "https://github.com/daichangya/chinese-poetry-md";
-
 export default function PoemDetailSidebar({
   poem,
   sameDynastyPoems,
 }: PoemDetailSidebarProps) {
-  const repoRoot = DEFAULT_SOURCE_REPO.replace(/\/$/, "");
-  const isGitHub = repoRoot.includes("github.com");
-  /** 在 chinese-poetry-md 中路径为 poems/author_slug/slug.md */
-  const editHref = isGitHub
-    ? `${repoRoot}/edit/main/poems/${poem.authorSlug}/${poem.slug}.md`
-    : `${repoRoot}/poems/${poem.authorSlug}/${poem.slug}.md`;
-  const tutorialHref =
-    (isGitHub ? `${repoRoot}/blob/main/README.md` : null) || CONTRIBUTE_PATH;
-  const buttonHref = editHref || repoRoot || CONTRIBUTE_PATH;
-
   const hasAnnotation = !!(poem.translation || poem.annotation || poem.appreciation);
 
   return (
     <aside className="space-y-6">
-      <CorrectionCard buttonHref={buttonHref} tutorialHref={tutorialHref} />
       <ReadingSettingsCard hasAnnotation={hasAnnotation} />
       <ReadAloudCard poem={poem} />
       <AuthorCard poem={poem} />

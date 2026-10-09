@@ -4,6 +4,15 @@
  */
 
 const VOWELS = "aeiouüv" as const;
+
+/** 汉字判定：基本区 + 扩展 A + 兼容区。只有汉字才配拼音。 */
+const HAN_RE = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
+
+/**
+ * 合法拼音音节：拉丁字母（含带调符号 ü 等）+ 可选声调数字。
+ * 用来从拼音串里剔除标点、括号、破折号等非音节 token。
+ */
+const SYLLABLE_RE = /^[a-zA-ZüÜvV\u00c0-\u024f]+[0-5]?$/;
 const TONE_MAP: Record<string, [string, string, string, string]> = {
   a: ["ā", "á", "ǎ", "à"],
   e: ["ē", "é", "ě", "è"],
@@ -70,22 +79,29 @@ export function pinyinNumLineToSymbol(line: string): string {
 
 /**
  * 将一行汉字与一行拼音（空格分隔）对齐为「字-音节」对。
- * 标点不占音节；若音节不足则无拼音，多出音节挂在最后一字后（少见）。
+ *
+ * 规则：只有汉字消耗音节，其余字符（标点、空格、括号、破折号等）拼音为空；
+ * 拼音串里混入的标点/非音节 token 会被丢弃。
+ * 原实现只把 `[\s，。、？！；：…—]` 当作不占音节的字符，遇到《》()「」
+ * 或半角标点时就会误当成汉字吃掉一个音节，导致该行后续拼音整体错位。
  */
 export function alignLineWithPinyin(
   line: string,
   pinyinLine: string,
 ): Array<{ char: string; pinyin: string }> {
   const chars = [...line];
-  const syllables = pinyinLine.trim().split(/\s+/).filter(Boolean);
+  const syllables = pinyinLine
+    .trim()
+    .split(/\s+/)
+    .filter((token) => SYLLABLE_RE.test(token));
   const result: Array<{ char: string; pinyin: string }> = [];
   let j = 0;
   for (const char of chars) {
-    if (/[\s，。、？！；：…—]/.test(char)) {
-      result.push({ char, pinyin: "" });
-    } else {
+    if (HAN_RE.test(char)) {
       result.push({ char, pinyin: syllables[j] ?? "" });
       j += 1;
+    } else {
+      result.push({ char, pinyin: "" });
     }
   }
   return result;
