@@ -19,7 +19,7 @@ export const DYNASTY_ENTRIES: DynastyEntry[] = [
   { slug: "han", displayName: "汉", aliases: ["汉", "汉代", "西汉", "东汉", "西汉末年", "东汉末年", "两汉"] },
   { slug: "dong-han-mo-nian", displayName: "东汉末年", aliases: ["东汉末年"] },
   { slug: "san-guo", displayName: "三国", aliases: ["三国", "三国时期"] },
-  { slug: "jin", displayName: "晋", aliases: ["晋", "晋代", "西晋", "东晋", "魏晋"] },
+  { slug: "jin", displayName: "晋", aliases: ["晋", "晋代", "西晋", "东晋"] },
   { slug: "nan-bei-chao", displayName: "南北朝", aliases: ["南北朝"] },
   { slug: "sui", displayName: "隋", aliases: ["隋", "隋代"] },
   { slug: "tang", displayName: "唐代", aliases: ["唐", "唐代"] },
@@ -29,6 +29,15 @@ export const DYNASTY_ENTRIES: DynastyEntry[] = [
   { slug: "yuan", displayName: "元代", aliases: ["元", "元代"] },
   { slug: "ming", displayName: "明代", aliases: ["明", "明代"] },
   { slug: "qing", displayName: "清代", aliases: ["清", "清代"] },
+  // 以下为桌面版数据库扩展出的朝代（chinese-poetry 三源数据引入），
+  // 缺少映射时 getDynastyDisplayName() 会原样返回 slug（如 "jin-dai"），界面上就会显示英文。
+  { slug: "jin-dai", displayName: "近代", aliases: ["近代"] },
+  { slug: "dang-dai", displayName: "当代", aliases: ["当代"] },
+  { slug: "xian-dai", displayName: "现代", aliases: ["现代"] },
+  { slug: "jin-chao", displayName: "金朝", aliases: ["金朝", "金代"] },
+  { slug: "liao", displayName: "辽朝", aliases: ["辽朝", "辽代"] },
+  { slug: "wei-jin", displayName: "魏晋", aliases: ["魏晋"] },
+  { slug: "unknown", displayName: "未知", aliases: ["未知", "不详"] },
 ];
 
 const slugToEntry = new Map<string, DynastyEntry>(DYNASTY_ENTRIES.map((e) => [e.slug, e]));

@@ -246,6 +246,32 @@ type PoemListRow = {
   dynasty_name: string;
 };
 
+/**
+ * poem_content.paragraphs 在库里有两种形态：
+ *  - 桌面版新导入的诗（含三源数据）是纯文本，以换行分行；
+ *  - 原站旧数据是 JSON 数组字符串 `["行1","行2"]`。
+ * 直接 JSON.parse 会在纯文本上抛异常，导致详情页整页落到「未找到该诗词」，
+ * 所以这里统一解析成行数组，两种形态都能正确显示。
+ */
+function parseParagraphLines(raw: string | null | undefined): string[] {
+  const text = (raw ?? "").trim();
+  if (!text) return [];
+  if (text.startsWith("[")) {
+    try {
+      const parsed: unknown = JSON.parse(text);
+      if (Array.isArray(parsed)) {
+        return parsed.map((x) => String(x).trim()).filter(Boolean);
+      }
+    } catch {
+      // 不是合法 JSON，落到下面的纯文本分支
+    }
+  }
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
 /** 从 poems + poem_content + 作者/朝代名 + tags 拼出完整 Poem；拼音由调用方传入（实时计算） */
 function assemblePoem(
   p: { slug: string; title: string; author_slug: string; dynasty_slug: string; rhythmic: string | null; excerpt: string | null },
@@ -257,7 +283,7 @@ function assemblePoem(
   tagNames: string[]
 ): Poem {
   const dynastyDisplay = getDynastyDisplayName(p.dynasty_slug) || dynastyName;
-  const paragraphs = content ? (JSON.parse(content.paragraphs || "[]") as string[]) : [];
+  const paragraphs = content ? parseParagraphLines(content.paragraphs) : [];
   return {
     slug: p.slug,
     title: p.title,
@@ -325,8 +351,8 @@ export async function getPoemBySlug(slug: string): Promise<Poem | undefined> {
     annotation: unknown;
   }>("SELECT paragraphs, translation, appreciation, annotation FROM poem_content WHERE slug = ?", [slug]);
 
-  const rawParagraphs = contentRow ? (await decodeTextValue(contentRow.paragraphs)) ?? "[]" : "[]";
-  const paragraphs = (JSON.parse(rawParagraphs) as string[]) ?? [];
+  const rawParagraphs = contentRow ? ((await decodeTextValue(contentRow.paragraphs)) ?? "") : "";
+  const paragraphs = parseParagraphLines(rawParagraphs);
   const titlePinyin = toPinyinToneNum(poemRow.title) || undefined;
   const paragraphsPinyin = paragraphs.length ? paragraphs.map((line) => toPinyinToneNum(line)) : undefined;
 
@@ -652,30 +678,44 @@ export async function getRandomPoemsForList(n: number, richOnly = false): Promis
   rhythmic?: string;
   excerpt?: string;
 }>> {
-  const rows = await query<{
+  type Row = {
     slug: string;
     title: string;
     excerpt: string | null;
     rhythmic: string | null;
     author_name: string;
     dynasty_name: string;
-  }>(
-    `SELECT p.slug, p.title, p.excerpt, p.rhythmic,
+  };
+  const COLS = `SELECT p.slug, p.title, p.excerpt, p.rhythmic,
             a.name AS author_name, d.name AS dynasty_name
-     FROM ${richOnly ? "poem_rich pr JOIN poems p ON p.slug = pr.slug" : "poems p"}
+     FROM poems p
      JOIN authors a ON p.author_slug = a.slug
-     JOIN dynasties d ON p.dynasty_slug = d.slug
-     ORDER BY RANDOM() LIMIT ?`,
-    [n]
-  );
-  return rows.map((r) => ({
-    slug: r.slug,
-    title: r.title,
-    author_name: r.author_name,
-    dynasty_name: getDynastyDisplayName(r.dynasty_name) || r.dynasty_name,
-    rhythmic: r.rhythmic ?? undefined,
-    excerpt: r.excerpt ?? undefined,
-  }));
+     JOIN dynasties d ON p.dynasty_slug = d.slug`;
+  const toList = (rows: Row[]) =>
+    rows.map((r) => ({
+      slug: r.slug,
+      title: r.title,
+      author_name: r.author_name,
+      dynasty_name: getDynastyDisplayName(r.dynasty_name) || r.dynasty_name,
+      rhythmic: r.rhythmic ?? undefined,
+      excerpt: r.excerpt ?? undefined,
+    }));
+
+  if (richOnly) {
+    // 富化随机用 poems.has_content（命中 idx_poems_has_content，实测 0.01s）。
+    // 原实现从 poem_rich 视图随机：视图要全表扫 poem_content（483MB BLOB）才能物化，
+    // 实测 24s，是「启动后卡顿一阵才加载出来」的根因。
+    const rows = await query<Row>(`${COLS} WHERE p.has_content = 1 ORDER BY RANDOM() LIMIT ?`, [n]);
+    return toList(rows);
+  }
+
+  // 全量随机：先随机取 slug（只扫 poems，约 0.6s）再取详情，
+  // 避免直接对 47 万行结果集做 JOIN 再整体排序（实测 2.8s）。
+  const slugs = await getRandomPoemSlugs(n);
+  if (!slugs.length) return [];
+  const placeholders = slugs.map(() => "?").join(", ");
+  const rows = await query<Row>(`${COLS} WHERE p.slug IN (${placeholders})`, slugs);
+  return toList(rows);
 }
 
 /** 按作者 slug 查其诗词列表（分页） */

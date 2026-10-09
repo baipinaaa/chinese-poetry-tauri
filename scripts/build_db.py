@@ -755,7 +755,11 @@ def enrich_from_sources(
             new_poem_rows.append(
                 (p_slug, title, a_slug, d_slug, None, excerpt, src, 1 if (tr or an or ap) else 0, meta)
             )
-            new_content_rows.append((p_slug, gz(body), gz(tr), gz(an), gz(ap), gz(bg)))
+            # paragraphs 统一存 JSON 数组字符串（与旧库 legacy 数据形态一致）。
+            # 前端 src/lib/db.ts 的 parseParagraphLines() 两种形态都能解析，
+            # 但保持单一形态可以避免下游消费者再踩 JSON.parse 抛异常的坑。
+            body_json = json.dumps([line for line in (body or "").split("\n") if line], ensure_ascii=False)
+            new_content_rows.append((p_slug, gz(body_json), gz(tr), gz(an), gz(ap), gz(bg)))
             new_tag_rows.append((p_slug, "shi-ci"))
             stats["inserted"] += 1
         else:
