@@ -1007,18 +1007,39 @@ def stage_final(src_db: Path, old_db: Path, out: Path, fts: bool = False) -> Pat
     t0 = time.time()
 
     # 1) 复制旧库结构数据
+    #    ⚠ 旧库里的三源记录（gushiwen / poemsdb / guwen）是历史导入的脏数据：正文没分行、
+    #    标题残留 &nbsp; 等实体，而且 slug 与阶段一的干净版本不同（同一首诗会变成两条）。
+    #    所以这里只保留 chinese-poetry 原站数据（source IS NULL），三源全部改由 sources.db 重写；
+    #    同时把 source 列一并复制（原实现漏了这一列，导致最终库来源信息丢失）。
     conn.execute("ATTACH DATABASE ? AS old", (str(old_db),))
+    conn.execute(
+        "INSERT INTO poems (slug,title,author_slug,dynasty_slug,rhythmic,excerpt,source) "
+        "SELECT slug,title,author_slug,dynasty_slug,rhythmic,excerpt,source FROM old.poems WHERE source IS NULL"
+    )
     for table, cols in (
-        ("poems", "slug,title,author_slug,dynasty_slug,rhythmic,excerpt"),
-        ("poem_content", "slug,paragraphs,translation,appreciation,annotation"),
         ("authors", "slug,name,poem_count,description"),
         ("dynasties", "slug,name,poem_count"),
         ("tags", "slug,name,poem_count"),
-        ("poem_tags", "poem_slug,tag_slug"),
     ):
         conn.execute(f"INSERT INTO {table} ({cols}) SELECT {cols} FROM old.{table}")
         n = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
         print(f"[final] 复制 {table:<14}{n:>9,}  ({time.time() - t0:.1f}s)")
+    conn.execute(
+        "INSERT INTO poem_content (slug,paragraphs,translation,appreciation,annotation,background) "
+        "SELECT c.slug,c.paragraphs,c.translation,c.appreciation,c.annotation,c.background "
+        "FROM old.poem_content c JOIN old.poems p ON p.slug = c.slug WHERE p.source IS NULL"
+    )
+    conn.execute(
+        "INSERT INTO poem_tags (poem_slug,tag_slug) "
+        "SELECT pt.poem_slug,pt.tag_slug FROM old.poem_tags pt "
+        "JOIN old.poems p ON p.slug = pt.poem_slug WHERE p.source IS NULL"
+    )
+    print(
+        f"[final] 复制 {'poems(原站)':<12}{conn.execute('SELECT COUNT(*) FROM poems').fetchone()[0]:>9,}"
+        f" / poem_content {conn.execute('SELECT COUNT(*) FROM poem_content').fetchone()[0]:>9,}"
+        f" / poem_tags {conn.execute('SELECT COUNT(*) FROM poem_tags').fetchone()[0]:>9,}"
+        f"  ({time.time() - t0:.1f}s)"
+    )
     conn.commit()
     conn.execute("DETACH DATABASE old")
     conn.commit()
