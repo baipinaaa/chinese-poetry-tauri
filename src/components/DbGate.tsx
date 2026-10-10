@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { dbOpen, dbStatus, formatSize, type DbStatus } from "../lib/ipc";
+import { resetStaticCache } from "../lib/api";
 
 interface DbGateProps {
   children: ReactNode;
@@ -47,6 +48,8 @@ export default function DbGate({ children }: DbGateProps) {
 
       setBusy(true);
       const next = await dbOpen(picked);
+      // 切换数据库后清空静态数据缓存（朝代/标签/词牌/诗人），避免沿用到上一个库的数据
+      if (next.ready) resetStaticCache();
       setStatus(next);
       setMessage(next.ready ? "导入成功" : next.error ?? "导入失败");
     } catch (err) {

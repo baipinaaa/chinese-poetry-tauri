@@ -85,6 +85,33 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(DbState::new())
+        .setup(|app| {
+            // 预热：窗口刚创建就在后台线程把库开好（含一次 poems 计数，让 OS 页缓存先热）。
+            // 前端首屏的 db_status / 统计查询要么直接命中这个连接，要么只需等这把锁，
+            // 省掉「打开库文件 + 首次读 B-tree 页」这段耗时。
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                if let Ok((conn, path)) = db::open_first_available(&handle) {
+                    let _ = db::query(&conn, "SELECT count(*) AS c FROM poems", &[]);
+                    let saved = db::load_saved_path(&handle);
+                    {
+                        let state = handle.state::<DbState>();
+                        let mut guard = state.0.lock().unwrap();
+                        if guard.is_none() {
+                            *guard = Some(conn);
+                        }
+                    }
+                    // 自动发现的路径也记一笔，下次启动能直接命中
+                    if saved.as_deref() != Some(path.as_str()) {
+                        let _ = db::save_path(&handle, &path);
+                    }
+                } else {
+                    // 预热失败不阻塞启动，前端会自行重试；留一行日志便于排障
+                    eprintln!("[db] 后台预热打开数据库失败，交给前端重试");
+                }
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             db_status,
             db_open,

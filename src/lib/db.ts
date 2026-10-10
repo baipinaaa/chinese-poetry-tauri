@@ -333,48 +333,51 @@ function rowToListPoem(row: PoemListRow): Poem {
 }
 
 export async function getPoemBySlug(slug: string): Promise<Poem | undefined> {
-  const poemRow = await queryOne<PoemListRow>(
+  // 一次 IPC 取齐：主表 + 正文/译文/注释/赏析（BLOB 由 Rust 侧转 base64）+ 标签聚合。
+  // 原实现是 3 次串行 await = 3 次 IPC 往返，而详情页首屏全压在这条路径上。
+  // 标签用 group_concat 聚合，分隔符取 ASCII 31（US 控制符，正文不会出现），
+  // 避免标签名本身含 "," / "|" 时被误拆。
+  const row = await queryOne<
+    PoemListRow & {
+      c_paragraphs: unknown;
+      c_translation: unknown;
+      c_appreciation: unknown;
+      c_annotation: unknown;
+      tag_names: string | null;
+    }
+  >(
     `SELECT p.slug, p.title, p.author_slug, p.dynasty_slug, p.rhythmic, p.excerpt,
-            a.name AS author_name, d.name AS dynasty_name
+            a.name AS author_name, d.name AS dynasty_name,
+            c.paragraphs AS c_paragraphs, c.translation AS c_translation,
+            c.appreciation AS c_appreciation, c.annotation AS c_annotation,
+            (SELECT group_concat(t.name, char(31))
+               FROM poem_tags pt JOIN tags t ON pt.tag_slug = t.slug
+              WHERE pt.poem_slug = p.slug) AS tag_names
      FROM poems p
      JOIN authors a ON p.author_slug = a.slug
      JOIN dynasties d ON p.dynasty_slug = d.slug
+     LEFT JOIN poem_content c ON c.slug = p.slug
      WHERE p.slug = ?`,
     [slug]
   );
-  if (!poemRow) return undefined;
+  if (!row) return undefined;
 
-  const contentRow = await queryOne<{
-    paragraphs: unknown;
-    translation: unknown;
-    appreciation: unknown;
-    annotation: unknown;
-  }>("SELECT paragraphs, translation, appreciation, annotation FROM poem_content WHERE slug = ?", [slug]);
-
-  const rawParagraphs = contentRow ? ((await decodeTextValue(contentRow.paragraphs)) ?? "") : "";
+  const rawParagraphs = (await decodeTextValue(row.c_paragraphs)) ?? "";
   const paragraphs = parseParagraphLines(rawParagraphs);
-  const titlePinyin = toPinyinToneNum(poemRow.title) || undefined;
+  const titlePinyin = toPinyinToneNum(row.title) || undefined;
   const paragraphsPinyin = paragraphs.length ? paragraphs.map((line) => toPinyinToneNum(line)) : undefined;
+  const tagNames = row.tag_names ? row.tag_names.split("\u001f").filter(Boolean) : [];
 
-  const tagRows = await query<{ name: string }>(
-    "SELECT t.name FROM poem_tags pt JOIN tags t ON pt.tag_slug = t.slug WHERE pt.poem_slug = ?",
-    [slug]
-  );
-  const tagNames = tagRows.map((r) => r.name);
-
-  const contentDecoded =
-    contentRow == null
-      ? null
-      : {
-          paragraphs: rawParagraphs,
-          translation: await decodeTextValue(contentRow.translation),
-          appreciation: await decodeTextValue(contentRow.appreciation),
-          annotation: await decodeTextValue(contentRow.annotation),
-        };
+  const contentDecoded = {
+    paragraphs: rawParagraphs,
+    translation: await decodeTextValue(row.c_translation),
+    appreciation: await decodeTextValue(row.c_appreciation),
+    annotation: await decodeTextValue(row.c_annotation),
+  };
   return assemblePoem(
-    poemRow,
-    poemRow.author_name,
-    poemRow.dynasty_name,
+    row,
+    row.author_name,
+    row.dynasty_name,
     contentDecoded,
     titlePinyin,
     paragraphsPinyin,

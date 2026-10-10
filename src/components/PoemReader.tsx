@@ -10,7 +10,13 @@
 import { Link } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 import { pinyinNumLineToSymbol, alignLineWithPinyin } from "../lib/pinyin_display";
-import { useReadingSettings } from "../context/ReadingSettingsContext";
+import {
+  useReadingSettings,
+  clampFontSize,
+  FONT_SIZE_MIN,
+  FONT_SIZE_MAX,
+  FONT_SIZE_STEP,
+} from "../context/ReadingSettingsContext";
 
 export interface PoemReaderProps {
   title: string;
@@ -54,8 +60,11 @@ export default function PoemReader({
   annotation,
   appreciation,
 }: PoemReaderProps) {
-  const { settings } = useReadingSettings();
+  const { settings, set } = useReadingSettings();
   const [converter, setConverter] = useState<((s: string) => string) | null>(null);
+
+  /** 正文字号快捷调节（右侧栏的阅读设置在窄窗口下会排到正文下方，这里提供常驻入口） */
+  const setSize = (px: number) => set("fontSize", clampFontSize(px));
 
   useEffect(() => {
     if (settings.variant !== "t") {
@@ -177,6 +186,32 @@ export default function PoemReader({
 
   return (
     <div className="space-y-8">
+      {/* 字号快捷条：不依赖右侧栏，任何窗口宽度下都能看到 */}
+      <div className="flex items-center justify-end gap-1.5 text-text/60">
+        <span className="mr-1 text-xs">正文字号</span>
+        <button
+          type="button"
+          aria-label="减小字号"
+          onClick={() => setSize(size - FONT_SIZE_STEP)}
+          disabled={size <= FONT_SIZE_MIN}
+          className="flex h-7 w-7 items-center justify-center rounded border border-black/15 text-xs transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/20"
+        >
+          A−
+        </button>
+        <span className="w-9 text-center text-xs tabular-nums" aria-live="polite">
+          {size}px
+        </span>
+        <button
+          type="button"
+          aria-label="增大字号"
+          onClick={() => setSize(size + FONT_SIZE_STEP)}
+          disabled={size >= FONT_SIZE_MAX}
+          className="flex h-7 w-7 items-center justify-center rounded border border-black/15 text-sm transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/20"
+        >
+          A+
+        </button>
+      </div>
+
       <header className="text-center">
         <h1
           className="font-bold text-primary"

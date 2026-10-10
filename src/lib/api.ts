@@ -40,6 +40,30 @@ import type {
   Tag,
 } from "./types";
 
+/**
+ * 静态数据缓存（进程内）。
+ *
+ * 桌面版的数据库是随包分发的只读文件，同一次运行内朝代 / 标签 / 词牌 / 诗人不会变化，
+ * 但侧边栏、筛选器、首页统计在每次进入页面时都会重新查一遍：
+ * getAuthors(0, 500) 实测 ~92ms、getRhythmics ~14ms，叠加起来正是「进页面先卡一下」。
+ * 这里按 key 缓存首次结果；失败不缓存（例如数据库尚未就绪时，下次会重试）。
+ */
+const staticCache = new Map<string, unknown>();
+
+function cachedStatic<T>(key: string, factory: () => Promise<T>): Promise<T> {
+  const hit = staticCache.get(key);
+  if (hit !== undefined) return Promise.resolve(hit as T);
+  return factory().then((value) => {
+    staticCache.set(key, value);
+    return value;
+  });
+}
+
+/** 切换数据库后调用：清空缓存，避免沿用到上一个库的数据（DbGate 在路径变化时调用） */
+export function resetStaticCache(): void {
+  staticCache.clear();
+}
+
 /** 列表页默认每页条数（与原 GET /api/poems 一致） */
 export const DEFAULT_POEMS_LIMIT = 20;
 /** 每页上限（与原 GET /api/poems 一致） */
@@ -172,19 +196,19 @@ export async function fetchAuthors(offset = 0, limit = 40): Promise<AuthorListRe
   return { items, total, offset: safeOffset, limit: safeLimit };
 }
 
-/** 朝代列表，复刻原 GET /api/dynasties */
+/** 朝代列表，复刻原 GET /api/dynasties（静态数据，走缓存） */
 export function fetchDynasties(): Promise<Dynasty[]> {
-  return getDynasties();
+  return cachedStatic("dynasties", () => getDynasties());
 }
 
-/** 标签列表，复刻原 GET /api/tags */
+/** 标签列表，复刻原 GET /api/tags（静态数据，走缓存） */
 export function fetchTags(): Promise<Tag[]> {
-  return getTags();
+  return cachedStatic("tags", () => getTags());
 }
 
-/** 词牌列表，复刻原 GET /api/rhythmics */
+/** 词牌列表，复刻原 GET /api/rhythmics（静态数据，走缓存） */
 export function fetchRhythmics(): Promise<Rhythmic[]> {
-  return getRhythmics();
+  return cachedStatic("rhythmics", () => getRhythmics());
 }
 
 /**
@@ -215,23 +239,28 @@ export function fetchPoemBySlug(slug: string): Promise<Poem | undefined> {
   return getPoemBySlug(slug);
 }
 
-/** 站点统计（首页用） */
-export async function fetchSiteStats(): Promise<SiteStats> {
-  const [poems, authors, dynasties] = await Promise.all([
-    countPoems(),
-    countAuthors(),
-    countDynasties(),
-  ]);
-  return { poems, authors, dynasties };
+/** 站点统计（首页用；只读库在运行期内不变，走缓存） */
+export function fetchSiteStats(): Promise<SiteStats> {
+  return cachedStatic("siteStats", async () => {
+    const [poems, authors, dynasties] = await Promise.all([
+      countPoems(),
+      countAuthors(),
+      countDynasties(),
+    ]);
+    return { poems, authors, dynasties };
+  });
 }
 
-/** 侧边栏数据（朝代 / 热门诗人 / 标签 / 词牌） */
-export async function fetchSidebarData(): Promise<SidebarData> {
-  const [dynasties, authors, tags, rhythmics] = await Promise.all([
-    getDynasties(),
-    getAuthors(0, 500),
-    getTags(),
-    getRhythmics(),
-  ]);
-  return { dynasties, authors, tags, rhythmics };
+/** 侧边栏数据（朝代 / 热门诗人 / 标签 / 词牌；静态数据，走缓存） */
+export function fetchSidebarData(): Promise<SidebarData> {
+  return cachedStatic("sidebar", async () => {
+    const [dynasties, authors, tags, rhythmics] = await Promise.all([
+      // 复用子缓存条目，避免与筛选器各查一遍
+      fetchDynasties(),
+      getAuthors(0, 500),
+      fetchTags(),
+      fetchRhythmics(),
+    ]);
+    return { dynasties, authors, tags, rhythmics };
+  });
 }
