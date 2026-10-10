@@ -235,9 +235,13 @@ function AuthorCard({ poem }: { poem: Poem }) {
           )}
           {(lifeSpan || poem.dynasty) && (
             <p className="mt-1 flex items-center gap-1.5 text-xs text-text/60">
-              <CalendarIcon />
-              {lifeSpan && <span>{lifeSpan}</span>}
-              {poem.dynasty && <span> · {poem.dynasty}</span>}
+              <span className="shrink-0">
+                <CalendarIcon />
+              </span>
+              {/* 整段不拆行：避免中文被逐字压缩成竖排（宋/代 分两行） */}
+              <span className="whitespace-nowrap">
+                {[lifeSpan, poem.dynasty].filter(Boolean).join(" · ")}
+              </span>
             </p>
           )}
         </div>
