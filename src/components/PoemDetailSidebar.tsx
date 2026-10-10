@@ -234,13 +234,14 @@ function AuthorCard({ poem }: { poem: Poem }) {
             <p className="mt-0.5 text-sm text-text/70">{pinyinDisplay}</p>
           )}
           {(lifeSpan || poem.dynasty) && (
-            <p className="mt-1 flex items-center gap-1.5 text-xs text-text/60">
-              <span className="shrink-0">
-                <CalendarIcon />
-              </span>
-              {/* 整段不拆行：避免中文被逐字压缩成竖排（宋/代 分两行） */}
-              <span className="whitespace-nowrap">
-                {[lifeSpan, poem.dynasty].filter(Boolean).join(" · ")}
+            <p className="mt-1 flex items-center gap-1 text-[10px] leading-4 text-text/60">
+              <CalendarIcon />
+              {/* 生卒年与朝代各自成段、段内不拆行，用 gap 分隔：
+                  空间不足时整段换行，而不是把汉字逐个竖排（旧问题：宋/代 分两行）。
+                  字号压到 10px，是为了在右侧栏（lg:w-56 = 224px）里放得下整行。 */}
+              <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5">
+                {lifeSpan && <span className="whitespace-nowrap">{lifeSpan}</span>}
+                {poem.dynasty && <span className="whitespace-nowrap">{poem.dynasty}</span>}
               </span>
             </p>
           )}
@@ -273,7 +274,7 @@ function AuthorCard({ poem }: { poem: Poem }) {
 
 function CalendarIcon() {
   return (
-    <svg className="h-3.5 w-3.5 shrink-0 text-text/50" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+    <svg className="h-3 w-3 shrink-0 text-text/50" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
     </svg>
   );

@@ -13,6 +13,7 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import { formatLifespan, getAuthorBySlug, getPoemsByAuthorSlug } from "../lib/db";
 import type { Author, Poem } from "../lib/types";
 import { useAsync } from "../lib/use-async";
+import BackLink from "../components/BackLink";
 import LayoutWithSidebar from "../components/LayoutWithSidebar";
 import SidebarLeft from "../components/SidebarLeft";
 import Pagination from "../components/Pagination";
@@ -87,12 +88,7 @@ export default function AuthorDetailPage() {
         <div className="max-w-4xl space-y-8">
           <h1 className="font-serif text-2xl font-bold text-primary md:text-3xl">未找到该诗人</h1>
           <p>
-            <Link
-              to="/authors"
-              className="cursor-pointer text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
-            >
-              ← 返回诗人列表
-            </Link>
+            <BackLink fallbackTo="/authors" fallbackLabel="返回诗人列表" />
           </p>
         </div>
       </LayoutWithSidebar>
@@ -146,12 +142,7 @@ export default function AuthorDetailPage() {
               />
             </section>
             <p>
-              <Link
-                to="/authors"
-                className="cursor-pointer text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
-              >
-                ← 返回诗人列表
-              </Link>
+              <BackLink fallbackTo="/authors" fallbackLabel="返回诗人列表" />
             </p>
           </>
         ) : null}

@@ -9,9 +9,10 @@
  */
 
 import { useEffect } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { fetchPoemBySlug, fetchPoems } from "../lib/api";
 import { useAsync } from "../lib/use-async";
+import BackLink from "../components/BackLink";
 import LayoutWithSidebar from "../components/LayoutWithSidebar";
 import SidebarLeft from "../components/SidebarLeft";
 import PoemDetailSidebar from "../components/PoemDetailSidebar";
@@ -75,9 +76,7 @@ export default function PoemDetailPage() {
           <h1 className="font-serif text-2xl font-bold text-primary md:text-3xl">未找到该诗词</h1>
           <p className="text-text/70">该诗词可能已被移除，或链接有误。</p>
           <p>
-            <Link to="/poems" className="cursor-pointer text-primary hover:underline">
-              ← 返回诗文列表
-            </Link>
+            <BackLink fallbackTo="/poems" fallbackLabel="返回诗文列表" />
           </p>
         </div>
       </LayoutWithSidebar>
@@ -109,9 +108,7 @@ export default function PoemDetailPage() {
             appreciation={poem.appreciation}
           />
           <p className="flex flex-wrap items-center gap-4 pt-4">
-            <Link to="/poems" className="cursor-pointer text-primary hover:underline">
-              ← 返回诗文列表
-            </Link>
+            <BackLink fallbackTo="/poems" fallbackLabel="返回诗文列表" />
           </p>
         </article>
       </LayoutWithSidebar>

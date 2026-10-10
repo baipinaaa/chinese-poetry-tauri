@@ -9,7 +9,7 @@
  */
 
 import { useEffect } from "react";
-import { Link } from "react-router-dom";
+import BackLink from "../components/BackLink";
 import ExternalLink from "../components/ExternalLink";
 
 /** 未配置时使用 .md 仓库（纠错与完善、贡献入口） */
@@ -88,9 +88,7 @@ export default function ContributePage() {
       )}
 
       <p className="pt-4">
-        <Link to="/" className="cursor-pointer text-primary hover:underline">
-          ← 返回首页
-        </Link>
+        <BackLink fallbackTo="/" fallbackLabel="返回首页" />
       </p>
     </article>
   );
