@@ -10,7 +10,14 @@
 import { Link } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 import type { Poem } from "../lib/types";
-import { useReadingSettings, type PoemFont } from "../context/ReadingSettingsContext";
+import {
+  useReadingSettings,
+  clampFontSize,
+  FONT_SIZE_MIN,
+  FONT_SIZE_MAX,
+  FONT_SIZE_STEP,
+  type PoemFont,
+} from "../context/ReadingSettingsContext";
 import { pinyinNumLineToSymbol } from "../lib/pinyin_display";
 import { getAuthorBySlug } from "../lib/db";
 import { useAsync } from "../lib/use-async";
@@ -83,6 +90,44 @@ function ReadingSettingsCard({ hasAnnotation }: { hasAnnotation: boolean }) {
                 {label}
               </button>
             ))}
+          </div>
+        </div>
+        <div className="py-2">
+          <div className="mb-2 flex items-baseline justify-between">
+            <p className="text-sm font-medium text-text/90">正文字号</p>
+            <span className="text-xs tabular-nums text-text/60">
+              {settings.fontSize}px
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => set("fontSize", clampFontSize(settings.fontSize - FONT_SIZE_STEP))}
+              disabled={settings.fontSize <= FONT_SIZE_MIN}
+              aria-label="减小正文字号"
+              className="h-7 w-8 shrink-0 cursor-pointer rounded-md bg-secondary/20 text-sm text-text/90 transition-colors duration-200 hover:bg-secondary/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              A−
+            </button>
+            <input
+              type="range"
+              min={FONT_SIZE_MIN}
+              max={FONT_SIZE_MAX}
+              step={FONT_SIZE_STEP}
+              value={settings.fontSize}
+              onChange={(e) => set("fontSize", clampFontSize(Number(e.target.value)))}
+              aria-label="正文字号"
+              className="h-1.5 min-w-0 flex-1 cursor-pointer accent-primary"
+            />
+            <button
+              type="button"
+              onClick={() => set("fontSize", clampFontSize(settings.fontSize + FONT_SIZE_STEP))}
+              disabled={settings.fontSize >= FONT_SIZE_MAX}
+              aria-label="增大正文字号"
+              className="h-7 w-8 shrink-0 cursor-pointer rounded-md bg-secondary/20 text-sm text-text/90 transition-colors duration-200 hover:bg-secondary/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              A+
+            </button>
           </div>
         </div>
         <Toggle

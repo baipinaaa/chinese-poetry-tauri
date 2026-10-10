@@ -64,6 +64,11 @@ pub fn open_readonly(path: &Path) -> Result<Connection, String> {
     }
     let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|e| format!("打开数据库失败：{e}"))?;
+    // 只读连接的读优化：文件内存映射 + 更大的页缓存 + 排序/临时表放内存。
+    // 库接近 500MB，默认 2MB 页缓存会让列表页反复读盘；PRAGMA 失败也不致命，忽略错误。
+    let _ = conn.execute_batch(
+        "PRAGMA mmap_size = 268435456; PRAGMA cache_size = -60000; PRAGMA temp_store = MEMORY;",
+    );
     let tables: i64 = conn
         .query_row(
             "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'poems'",
@@ -79,8 +84,12 @@ pub fn open_readonly(path: &Path) -> Result<Connection, String> {
 
 /// 组装状态（已打开连接时）
 pub fn status_of(conn: &Connection, path: Option<String>) -> DbStatus {
+    // 不用 count(*)：47 万行全表计数实测 465ms，正好落在「双击图标后到界面可用」的
+    // 关键路径上（本地库无删行，MAX(rowid) 即总数，实测 ~1ms）。
     let poems = conn
-        .query_row("SELECT count(*) FROM poems", [], |row| row.get::<_, i64>(0))
+        .query_row("SELECT COALESCE(MAX(rowid), 0) FROM poems", [], |row| {
+            row.get::<_, i64>(0)
+        })
         .ok();
     let size = path.as_ref().and_then(|p| std::fs::metadata(p).ok()).map(|m| m.len());
     DbStatus {

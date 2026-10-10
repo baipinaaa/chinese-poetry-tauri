@@ -707,6 +707,12 @@ FINAL_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_poems_title_author ON poems(title, author_slug)",
     "CREATE INDEX IF NOT EXISTS idx_poems_has_content  ON poems(has_content, dynasty_slug)",
     "CREATE INDEX IF NOT EXISTS idx_authors_name       ON authors(name)",
+    # ↓ 三个复合索引是「列表按 slug 排序」的关键：只有单列索引时，
+    # WHERE dynasty_slug=? ORDER BY slug 必须先捞出该朝代的全部行再整体排序
+    #（宋 29 万行 → 1852ms，词牌 2800ms，用户感知就是「进诗详情 / 换列表卡几秒」）。
+    "CREATE INDEX IF NOT EXISTS idx_poems_dynasty_slug_slug ON poems(dynasty_slug, slug)",
+    "CREATE INDEX IF NOT EXISTS idx_poems_rhythmic_slug     ON poems(rhythmic, slug)",
+    "CREATE INDEX IF NOT EXISTS idx_poems_author_slug_slug  ON poems(author_slug, slug)",
 ]
 
 SRC_FIELDS = ("translation", "annotation", "appreciation", "background")

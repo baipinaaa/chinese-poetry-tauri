@@ -16,6 +16,11 @@
 #   ③ 本仓库最新 Release 里的 poetry_index.db 资产  ④ 都没有 → 0 字节占位（应用启动后提示导入）
 #   ⑤ 本次构建跑了 data job（build_db=true）时，直接用云端刚建好的库，不再走 ①②③
 #
+# 另外：无论库从哪来，打包前一律过一遍 scripts/ensure-db-indexes.py 补齐复合索引。
+# 仓库里那份老库缺 (dynasty_slug, slug) 等索引，「同朝代」列表要临时排序 7~29 万行
+#（实测宋 1852ms、词牌 2800ms），用户看到的就是「打开应用 / 进诗详情卡几秒」。
+# 补齐后这些查询降到 0.2~0.3ms；补过的库会重新上传到 Release，后续构建自动跳过这步。
+#
 # 云端重建数据库（可选，默认不跑）：手动触发时把 build_db 设为 true，并给出数据源压缩包地址
 # （sources_url 输入或 Secret POETRY_SOURCES_URL，包内需含 gushiwen-main/、poems-db-master/、
 #   chinese-gushiwen-master/ 三个目录）。data job 会先跑 Python 管线（scripts/build_db.py）建库，
@@ -203,6 +208,11 @@ jobs:
         with:
           node-version: 20
 
+      # 补齐数据库索引用（标准库 sqlite3 就够，不装第三方包）
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: 安装 Linux 系统依赖（WebKitGTK 等）
         if: matrix.platform == 'ubuntu-22.04'
         run: |
@@ -281,6 +291,15 @@ jobs:
             echo "real=false" >> "$GITHUB_OUTPUT"
             echo "未获取到真实数据库（当前 $size 字节），跳过 Release 上传"
           fi
+
+      # 库缺复合索引时，同一朝代的列表要临时排序几十万行：补上后「同朝代」从 1.8s 降到 0.2ms。
+      # 补过索引的库会由后面那步重新上传到 Release，于是之后的构建直接下载到带索引的库，
+      # 这一步自己就变成 changed=false（在 Release 里已经有带索引的库时不再重复上传）。
+      - name: 补齐数据库索引（提升打开与进详情的速度）
+        id: dbindex
+        if: steps.dbcheck.outputs.real == 'true'
+        shell: bash
+        run: python scripts/ensure-db-indexes.py src-tauri/resources/poetry_index.db
 
       - name: 应用图标（仓库已内置 src-tauri/icons，仅在缺失时由 app-icon.svg 兜底生成）
         shell: bash
@@ -396,11 +415,13 @@ jobs:
           echo "仓库里已有的 poetry_index.db 资产数量：$n"
 
       # 数据库作为临时产物交给 release job 一起发布（仅 Linux 那次、且确实拿到真库时）。
-      # 好处：下次构建时 scripts/fetch-db.mjs 能从本仓库的 Release 自动取到 216MB 的库，
+      # 好处：下次构建时 scripts/fetch-db.mjs 能从本仓库的 Release 自动取到库，
       # 不用把它提交进 Git，也不用每次手动填下载地址。
+      # 已有库资产就不再传（避免每次发布都塞一份）；但本次给库补了索引（changed=true）时必须传，
+      # 否则下一个版本打进去的还是那份慢库。
       # retention-days: 1 —— artifact 只当中转站，发完就不用留着占存储配额。
       - name: 上传数据库供发布使用（仅 Linux、且取到真实库时）
-        if: matrix.platform == 'ubuntu-22.04' && steps.dbcheck.outputs.real == 'true' && steps.dbasset.outputs.existing == '0' && inputs.build_db != 'true'
+        if: matrix.platform == 'ubuntu-22.04' && steps.dbcheck.outputs.real == 'true' && (steps.dbasset.outputs.existing == '0' || steps.dbindex.outputs.changed == 'true') && inputs.build_db != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: db-poetry

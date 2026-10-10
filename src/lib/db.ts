@@ -648,7 +648,10 @@ export async function countSearchPoems(q: string): Promise<number> {
 }
 
 export async function countPoems(): Promise<number> {
-  return queryNumber("SELECT COUNT(*) as c FROM poems");
+  // 不用 COUNT(*)：47 万行的全表计数实测 465ms，而首页/引导页会各查一次，
+  // 累起来接近 1 秒，是「打开后要等一下才出数字」的一部分。
+  // poems 表无删行，MAX(rowid) 即总数，走主键索引尾部，实测 ~1ms。
+  return queryNumber("SELECT COALESCE(MAX(rowid), 0) AS c FROM poems");
 }
 
 export async function countAuthors(): Promise<number> {
@@ -661,8 +664,16 @@ export async function countDynasties(): Promise<number> {
 
 /** 随机取 n 首诗的 slug（用于首页推荐、随机一首） */
 export async function getRandomPoemSlugs(n: number): Promise<string[]> {
-  const rows = await query<{ slug: string }>("SELECT slug FROM poems ORDER BY RANDOM() LIMIT ?", [n]);
-  return rows.map((r) => r.slug);
+  // ORDER BY RANDOM() 要把 47 万行整体排序（实测 38ms，且随库增大线性变慢）。
+  // 改成「随机 rowid 起点 + 顺序取 n 行」：一次主键定位即可，实测 <1ms。
+  const max = await queryNumber("SELECT COALESCE(MAX(rowid), 0) AS n FROM poems");
+  if (max <= 0) return [];
+  const start = 1 + Math.floor(Math.random() * max);
+  const rows = await query<{ slug: string }>("SELECT slug FROM poems WHERE rowid >= ? LIMIT ?", [start, n]);
+  if (rows.length >= n) return rows.map((r) => r.slug);
+  // 起点太靠近表尾时补齐（绕回表头再取）
+  const more = await query<{ slug: string }>("SELECT slug FROM poems WHERE rowid < ? LIMIT ?", [start, n - rows.length]);
+  return [...rows, ...more].map((r) => r.slug);
 }
 
 /**
@@ -705,8 +716,18 @@ export async function getRandomPoemsForList(n: number, richOnly = false): Promis
     // 富化随机用 poems.has_content（命中 idx_poems_has_content，实测 0.01s）。
     // 原实现从 poem_rich 视图随机：视图要全表扫 poem_content（483MB BLOB）才能物化，
     // 实测 24s，是「启动后卡顿一阵才加载出来」的根因。
-    const rows = await query<Row>(`${COLS} WHERE p.has_content = 1 ORDER BY RANDOM() LIMIT ?`, [n]);
-    return toList(rows);
+    // ORDER BY RANDOM() 需扫全部 has_content=1 的行并排序（实测 10ms）。
+    // 改为「随机 rowid 起点 + has_content 过滤」，直接走 idx_poems_has_content。
+    const max = await queryNumber("SELECT COALESCE(MAX(rowid), 0) AS n FROM poems");
+    const start = max > 0 ? 1 + Math.floor(Math.random() * max) : 1;
+    const rows = await query<Row>(`${COLS} WHERE p.has_content = 1 AND p.rowid >= ? LIMIT ?`, [start, n]);
+    const more =
+      rows.length < n
+        ? await query<Row>(`${COLS} WHERE p.has_content = 1 AND p.rowid < ? LIMIT ?`, [start, n - rows.length])
+        : [];
+    if (rows.length + more.length >= n) return toList([...rows, ...more]);
+    // 极端情况（库里富化诗很少）回退到原实现，保证一定能取到
+    return toList(await query<Row>(`${COLS} WHERE p.has_content = 1 ORDER BY RANDOM() LIMIT ?`, [n]));
   }
 
   // 全量随机：先随机取 slug（只扫 poems，约 0.6s）再取详情，

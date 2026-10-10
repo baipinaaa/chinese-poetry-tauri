@@ -2,6 +2,7 @@
  * 诗词正文：标题、作者、正文（字级拼音）、译文/注释/赏析。
  * 阅读设置由右侧栏 ReadingSettingsCard 控制，状态来自 ReadingSettingsContext。
  * 桌面版移植：next/link → react-router-dom Link，阅读设置改用 src/context/ReadingSettingsContext。
+ * 正文字号由 settings.fontSize 控制（标题、作者行、译文按比例缩放；拼音 rt 用 em 随正文缩放）。
  * @author daichangya@163.com
  * https://shi-ci.cn
  */
@@ -80,6 +81,10 @@ export default function PoemReader({
   };
   const fontFamily = fontFamilyMap[settings.font] ?? fontFamilyMap.song;
 
+  /* 字号缩放：正文用 settings.fontSize（px），其余元素按比例，拼音用 em 跟随正文 */
+  const size = settings.fontSize;
+  const rtStyle = { fontSize: "0.55em" } as const;
+
   /* 装饰字体按需加载：仅当用户选择 calligraphy/handwriting/artistic 时动态插入 Google Fonts <link>（离线时静默失败，回退系统字体） */
   const decorativeFontUrlMap: Record<string, string> = {
     calligraphy: "https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&display=swap",
@@ -155,7 +160,7 @@ export default function PoemReader({
             pinyin ? (
               <ruby key={k} className="ruby">
                 {char}
-                <rt className="font-sans text-xs text-text/60">{pinyin}</rt>
+                <rt className="font-sans text-text/60" style={rtStyle}>{pinyin}</rt>
               </ruby>
             ) : (
               <span key={k}>{char}</span>
@@ -174,8 +179,8 @@ export default function PoemReader({
     <div className="space-y-8">
       <header className="text-center">
         <h1
-          className="text-2xl font-bold text-primary md:text-3xl"
-          style={{ fontFamily }}
+          className="font-bold text-primary"
+          style={{ fontFamily, fontSize: `${Math.round(size * 1.6)}px` }}
         >
           {titlePairs ? (
             <span className="inline-flex flex-wrap justify-center gap-x-0.5">
@@ -183,7 +188,7 @@ export default function PoemReader({
                 pinyin ? (
                   <ruby key={k} className="ruby">
                     {char}
-                    <rt className="font-sans text-xs text-text/60">{pinyin}</rt>
+                    <rt className="font-sans text-text/60" style={rtStyle}>{pinyin}</rt>
                   </ruby>
                 ) : (
                   <span key={k}>{char}</span>
@@ -194,7 +199,10 @@ export default function PoemReader({
             displayTitle
           )}
         </h1>
-        <p className="mt-2 flex flex-wrap items-center justify-center gap-x-1 text-text/80">
+        <p
+          className="mt-2 flex flex-wrap items-center justify-center gap-x-1 text-text/80"
+          style={{ fontSize: `${Math.round(size * 0.9)}px` }}
+        >
           {authorSlug ? (
             <Link to={`/authors/${authorSlug}`} className={linkClass}>
               {renderAuthorContent()}
@@ -227,7 +235,10 @@ export default function PoemReader({
           ) : null}
         </p>
         {displayTags.length > 0 && tags ? (
-          <p className="mt-2 flex flex-wrap items-center justify-center gap-2 text-sm text-text/80">
+          <p
+            className="mt-2 flex flex-wrap items-center justify-center gap-2 text-text/80"
+            style={{ fontSize: `${Math.round(size * 0.75)}px` }}
+          >
             <span className="shrink-0 text-text/60">标签：</span>
             {displayTags.map((displayName, i) => (
               <Link
@@ -243,8 +254,8 @@ export default function PoemReader({
       </header>
 
       <section
-        className="mb-8 space-y-3 text-lg leading-loose"
-        style={{ fontFamily }}
+        className="mb-8 space-y-3 leading-loose"
+        style={{ fontFamily, fontSize: `${size}px` }}
       >
         {(paragraphsPinyin && paragraphsPinyin.length > 0 && settings.showPinyin
           ? displayParagraphs.map((line, i) => ({
@@ -261,7 +272,7 @@ export default function PoemReader({
                 pinyin ? (
                   <ruby key={k} className="ruby">
                     {char}
-                    <rt className="font-sans text-xs text-text/60">{pinyin}</rt>
+                    <rt className="font-sans text-text/60" style={rtStyle}>{pinyin}</rt>
                   </ruby>
                 ) : (
                   <span key={k}>{char}</span>
@@ -276,20 +287,50 @@ export default function PoemReader({
         <section className="space-y-6 border-t border-secondary/20 pt-8">
           {displayTranslation && (
             <div className="rounded-lg border border-secondary/20 p-4">
-              <h2 className="font-semibold text-primary">译文</h2>
-              <p className="mt-1 whitespace-pre-wrap text-text/90">{displayTranslation}</p>
+              <h2
+                className="font-semibold text-primary"
+                style={{ fontSize: `${Math.round(size * 0.95)}px` }}
+              >
+                译文
+              </h2>
+              <p
+                className="mt-1 whitespace-pre-wrap text-text/90"
+                style={{ fontSize: `${Math.round(size * 0.95)}px` }}
+              >
+                {displayTranslation}
+              </p>
             </div>
           )}
           {displayAnnotation && (
             <div className="rounded-lg border border-secondary/20 p-4">
-              <h2 className="font-semibold text-primary">注释</h2>
-              <p className="mt-1 whitespace-pre-wrap text-text/90">{displayAnnotation}</p>
+              <h2
+                className="font-semibold text-primary"
+                style={{ fontSize: `${Math.round(size * 0.95)}px` }}
+              >
+                注释
+              </h2>
+              <p
+                className="mt-1 whitespace-pre-wrap text-text/90"
+                style={{ fontSize: `${Math.round(size * 0.95)}px` }}
+              >
+                {displayAnnotation}
+              </p>
             </div>
           )}
           {displayAppreciation && (
             <div className="rounded-lg border border-secondary/20 p-4">
-              <h2 className="font-semibold text-primary">赏析</h2>
-              <p className="mt-1 whitespace-pre-wrap text-text/90">{displayAppreciation}</p>
+              <h2
+                className="font-semibold text-primary"
+                style={{ fontSize: `${Math.round(size * 0.95)}px` }}
+              >
+                赏析
+              </h2>
+              <p
+                className="mt-1 whitespace-pre-wrap text-text/90"
+                style={{ fontSize: `${Math.round(size * 0.95)}px` }}
+              >
+                {displayAppreciation}
+              </p>
             </div>
           )}
         </section>

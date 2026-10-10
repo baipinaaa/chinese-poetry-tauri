@@ -19,9 +19,23 @@ const STORAGE_KEY = "poetry-reading-settings";
 
 export type PoemFont = "song" | "kai" | "calligraphy" | "handwriting" | "artistic";
 
+/** 正文字号（px）范围、步长与默认值 */
+export const FONT_SIZE_MIN = 14;
+export const FONT_SIZE_MAX = 36;
+export const FONT_SIZE_STEP = 2;
+export const FONT_SIZE_DEFAULT = 20;
+
+/** 把任意输入夹到合法字号区间 */
+export function clampFontSize(px: number): number {
+  if (!Number.isFinite(px)) return FONT_SIZE_DEFAULT;
+  return Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, Math.round(px)));
+}
+
 export interface ReadingSettings {
   variant: "s" | "t";
   font: PoemFont;
+  /** 正文字号（px） */
+  fontSize: number;
   showPinyin: boolean;
   showAnnotation: boolean;
 }
@@ -29,6 +43,7 @@ export interface ReadingSettings {
 const defaultSettings: ReadingSettings = {
   variant: "s",
   font: "song",
+  fontSize: FONT_SIZE_DEFAULT,
   showPinyin: true,
   showAnnotation: true,
 };
@@ -46,6 +61,7 @@ function loadSettings(): ReadingSettings {
     return {
       variant: parsed.variant === "t" ? "t" : "s",
       font,
+      fontSize: typeof parsed.fontSize === "number" ? clampFontSize(parsed.fontSize) : FONT_SIZE_DEFAULT,
       showPinyin: parsed.showPinyin !== false,
       showAnnotation: parsed.showAnnotation !== false,
     };
