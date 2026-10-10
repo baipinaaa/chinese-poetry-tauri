@@ -25,7 +25,7 @@ export default function ContributePage() {
   }, []);
 
   return (
-    <article className="mx-auto max-w-2xl space-y-6">
+    <article className="mx-auto max-w-[var(--reader-max-w)] space-y-6">
       <header>
         <h1 className="font-serif text-2xl font-bold text-primary md:text-3xl">贡献指南</h1>
         <p className="mt-2 text-text/80">欢迎参与诗词内容的纠错与完善。</p>

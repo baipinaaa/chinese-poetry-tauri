@@ -29,7 +29,7 @@ function AuthorsSkeleton() {
   return (
     <div className="animate-pulse space-y-6">
       <div className="h-4 w-32 rounded bg-secondary/10" />
-      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3">
         {Array.from({ length: 12 }).map((_, i) => (
           <div key={i} className="rounded-lg border border-secondary/10 p-4">
             <div className="flex items-baseline justify-between">
@@ -80,7 +80,7 @@ export default function AuthorsPage() {
 
   return (
     <LayoutWithSidebar sidebarLeft={<SidebarLeft />}>
-      <div className="max-w-4xl space-y-8">
+      <div className="max-w-[var(--list-max-w)] space-y-8">
         <h1 className="font-serif text-2xl font-bold text-primary md:text-3xl">诗人</h1>
         {loading ? (
           <AuthorsSkeleton />
@@ -94,7 +94,7 @@ export default function AuthorsPage() {
               <p className="text-text/70">暂无数据。去浏览诗文</p>
             ) : (
               <>
-                <ul className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
+                <ul className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3">
                   {data.authors.map((a) => (
                     <li key={a.slug}>
                       <Link

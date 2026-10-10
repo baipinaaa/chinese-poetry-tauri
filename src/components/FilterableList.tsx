@@ -55,7 +55,7 @@ export default function FilterableList({
       {filtered.length === 0 ? (
         <p className="text-text/70">{emptyText}</p>
       ) : (
-        <ul className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
+        <ul className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3">
           {filtered.map((item) => (
             <li key={item.slug}>
               <Link

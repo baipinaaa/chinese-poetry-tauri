@@ -39,7 +39,7 @@ function AuthorDetailSkeleton() {
         <div className="h-4 w-16 rounded bg-secondary/15" />
         <div className="mt-3 h-3 w-3/4 rounded bg-secondary/10" />
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3">
         {Array.from({ length: 9 }).map((_, i) => (
           <div key={i} className="rounded-lg border border-secondary/10 p-3">
             <div className="h-4 w-24 rounded bg-secondary/15" />
@@ -85,7 +85,7 @@ export default function AuthorDetailPage() {
   if (!loading && !error && data && !data.author) {
     return (
       <LayoutWithSidebar sidebarLeft={<SidebarLeft />}>
-        <div className="max-w-4xl space-y-8">
+        <div className="max-w-[var(--list-max-w)] space-y-8">
           <h1 className="font-serif text-2xl font-bold text-primary md:text-3xl">未找到该诗人</h1>
           <p>
             <BackLink fallbackTo="/authors" fallbackLabel="返回诗人列表" />
@@ -97,7 +97,7 @@ export default function AuthorDetailPage() {
 
   return (
     <LayoutWithSidebar sidebarLeft={<SidebarLeft />}>
-      <div className="max-w-4xl space-y-8">
+      <div className="max-w-[var(--list-max-w)] space-y-8">
         {loading ? (
           <AuthorDetailSkeleton />
         ) : error ? (
@@ -123,7 +123,7 @@ export default function AuthorDetailPage() {
             )}
             <section>
               <h2 className="mb-3 font-semibold text-primary">诗文</h2>
-              <ul className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
+              <ul className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3">
                 {data.poems.map((p) => (
                   <li key={p.slug}>
                     <Link

@@ -38,6 +38,39 @@
   --color-text: #020617;
 }
 
+/*
+  页面宽度档位：由顶栏「页面宽度」选择写入 <html data-page-width>。
+    --page-max-w   外层容器（导航 / 主区 / 页脚）
+    --list-max-w   列表页内容（诗人、朝代、标签、词牌、诗文列表）
+    --reader-max-w 正文阅读宽度（诗详情、贡献指南）
+  不写 data-page-width 时 = 标准档，与改造前的 max-w-6xl / 4xl / 2xl 完全一致。
+*/
+:root {
+  --page-max-w: 72rem;
+  --list-max-w: 56rem;
+  --reader-max-w: 42rem;
+}
+html[data-page-width="compact"] {
+  --page-max-w: 60rem;
+  --list-max-w: 44rem;
+  --reader-max-w: 36rem;
+}
+html[data-page-width="wide"] {
+  --page-max-w: 88rem;
+  --list-max-w: 68rem;
+  --reader-max-w: 50rem;
+}
+html[data-page-width="xwide"] {
+  --page-max-w: 108rem;
+  --list-max-w: 84rem;
+  --reader-max-w: 60rem;
+}
+html[data-page-width="full"] {
+  --page-max-w: 100%;
+  --list-max-w: 100%;
+  --reader-max-w: 72rem;
+}
+
 html,
 body,
 #root {

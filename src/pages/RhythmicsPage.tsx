@@ -17,7 +17,7 @@ function RhythmicsSkeleton() {
   return (
     <div className="animate-pulse space-y-6">
       <div className="h-10 w-full max-w-xs rounded-md bg-secondary/10" />
-      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3">
         {Array.from({ length: 12 }).map((_, i) => (
           <div key={i} className="rounded-lg border border-secondary/10 p-4">
             <div className="h-4 w-20 rounded bg-secondary/15" />
@@ -42,7 +42,7 @@ export default function RhythmicsPage() {
 
   return (
     <LayoutWithSidebar sidebarLeft={<SidebarLeft />}>
-      <div className="max-w-4xl space-y-8">
+      <div className="max-w-[var(--list-max-w)] space-y-8">
         <h1 className="font-serif text-2xl font-bold text-primary md:text-3xl">词牌</h1>
         <p className="text-text/70">按词牌浏览宋词等，点击进入该词牌下的作品列表。</p>
         {loading ? (

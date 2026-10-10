@@ -53,7 +53,7 @@ export default function HomeRecommendations({ count = DEFAULT_COUNT }: { count?:
   return (
     <section>
       <h2 className="mb-3 font-serif text-xl font-bold text-primary">推荐几首</h2>
-      <ul className="space-y-3">
+      <ul className="grid grid-cols-[repeat(auto-fill,minmax(20rem,1fr))] gap-3">
         {items.map((p) => (
           <li key={p.slug}>
             <Link

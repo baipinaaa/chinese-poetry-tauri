@@ -73,7 +73,7 @@ export default function PoemsListClient() {
           : "";
 
   return (
-    <div className="max-w-4xl space-y-8">
+    <div className="max-w-[var(--list-max-w)] space-y-8">
       <h1 className="font-serif text-2xl font-bold text-primary md:text-3xl">
         {pageTitle}
       </h1>

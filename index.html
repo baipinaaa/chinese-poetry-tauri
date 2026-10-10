@@ -16,6 +16,20 @@
         --boot-fg: #db2777;
         --boot-soft: #f472b6;
         --boot-card: #ffffff;
+        /* 页面宽度档位，与 src/index.css 的 --page-max-w 保持一致 */
+        --page-max-w: 72rem;
+      }
+      html[data-page-width="compact"] {
+        --page-max-w: 60rem;
+      }
+      html[data-page-width="wide"] {
+        --page-max-w: 88rem;
+      }
+      html[data-page-width="xwide"] {
+        --page-max-w: 108rem;
+      }
+      html[data-page-width="full"] {
+        --page-max-w: 100%;
       }
       [data-theme="warm"] {
         --boot-bg: #fef3c7;
@@ -70,7 +84,7 @@
       }
       .boot-main {
         width: 100%;
-        max-width: 72rem;
+        max-width: var(--page-max-w);
         margin: 0 auto;
         padding: 1.75rem 1.5rem;
         flex: 1;
@@ -128,12 +142,16 @@
       }
     </style>
     <script>
-      // 主题：启动即应用，避免闪白
+      // 主题与页面宽度：启动即应用，避免首帧跳变
       (function () {
         try {
           var t = localStorage.getItem("poetry-theme");
           if (t === "warm" || t === "ink" || t === "blue") {
             document.documentElement.setAttribute("data-theme", t);
+          }
+          var w = localStorage.getItem("poetry-page-width");
+          if (w === "compact" || w === "wide" || w === "xwide" || w === "full") {
+            document.documentElement.setAttribute("data-page-width", w);
           }
         } catch (e) {}
       })();

@@ -26,7 +26,7 @@ export default function App() {
     <DbGate>
       <div className="flex min-h-screen flex-col">
         <Nav />
-        <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 md:px-6">
+        <main className="mx-auto w-full max-w-[var(--page-max-w)] flex-1 px-4 py-6 md:px-6">
           <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/poems" element={<PoemsPage />} />

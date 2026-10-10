@@ -25,6 +25,7 @@ const SEARCH_TYPE_OPTIONS: { value: SearchType; label: string; placeholder: stri
 ];
 
 const THEME_STORAGE_KEY = "poetry-theme";
+const PAGE_WIDTH_STORAGE_KEY = "poetry-page-width";
 /** 源码仓库（导航 GitHub 与详情页纠错与完善同源）；桌面版无构建期环境变量，固定为该仓库 */
 const DEFAULT_SOURCE_REPO = "https://github.com/daichangya/chinese-poetry-md";
 
@@ -48,6 +49,37 @@ function applyTheme(value: ThemeId) {
     document.documentElement.removeAttribute("data-theme");
   } else {
     document.documentElement.setAttribute("data-theme", value);
+  }
+}
+
+/**
+ * 页面宽度档位：写入 <html data-page-width>，由 src/index.css 里的 CSS 变量
+ * （--page-max-w / --list-max-w / --reader-max-w）统一控制导航、列表与正文的最大宽度。
+ * 标准档不写属性，与改造前的 max-w-6xl / 4xl / 2xl 完全一致。
+ */
+type PageWidthId = "compact" | "standard" | "wide" | "xwide" | "full";
+const PAGE_WIDTH_OPTIONS: { value: PageWidthId; label: string }[] = [
+  { value: "compact", label: "紧凑" },
+  { value: "standard", label: "标准" },
+  { value: "wide", label: "宽" },
+  { value: "xwide", label: "超宽" },
+  { value: "full", label: "全宽" },
+];
+
+function getStoredPageWidth(): PageWidthId {
+  if (typeof window === "undefined") return "standard";
+  const w = localStorage.getItem(PAGE_WIDTH_STORAGE_KEY);
+  if (w === "compact" || w === "wide" || w === "xwide" || w === "full" || w === "standard") {
+    return w;
+  }
+  return "standard";
+}
+
+function applyPageWidth(value: PageWidthId) {
+  if (value === "standard") {
+    document.documentElement.removeAttribute("data-page-width");
+  } else {
+    document.documentElement.setAttribute("data-page-width", value);
   }
 }
 
@@ -88,9 +120,13 @@ export default function Nav() {
   const [searchType, setSearchType] = useState<SearchType>("keyword");
   const [query, setQuery] = useState("");
   const [theme, setThemeState] = useState<ThemeId>("pink");
+  const [pageWidth, setPageWidthState] = useState<PageWidthId>("standard");
 
   useEffect(() => {
     setThemeState(getStoredTheme());
+    const storedWidth = getStoredPageWidth();
+    applyPageWidth(storedWidth);
+    setPageWidthState(storedWidth);
   }, []);
 
   useEffect(() => {
@@ -106,6 +142,12 @@ export default function Nav() {
     localStorage.setItem(THEME_STORAGE_KEY, value);
     applyTheme(value);
     setThemeState(value);
+  }, []);
+
+  const setPageWidth = useCallback((value: PageWidthId) => {
+    localStorage.setItem(PAGE_WIDTH_STORAGE_KEY, value);
+    applyPageWidth(value);
+    setPageWidthState(value);
   }, []);
 
   useEffect(() => {
@@ -159,7 +201,7 @@ export default function Nav() {
 
   return (
     <header className="sticky top-0 z-10 border-b border-secondary/20 bg-background backdrop-blur">
-      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-4 md:px-6">
+      <div className="mx-auto flex h-14 max-w-[var(--page-max-w)] items-center justify-between gap-4 px-4 md:px-6">
         <nav className="flex items-center gap-6">
           <Link
             to="/"
@@ -250,6 +292,22 @@ export default function Nav() {
               className="cursor-pointer rounded-md border border-secondary/30 bg-background px-2 py-1.5 text-sm text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background"
             >
               {THEME_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-2">
+            <span className="sr-only">页面宽度</span>
+            <select
+              value={pageWidth}
+              onChange={(e) => setPageWidth(e.target.value as PageWidthId)}
+              aria-label="选择页面宽度：紧凑、标准、宽、超宽、全宽"
+              title="页面宽度"
+              className="cursor-pointer rounded-md border border-secondary/30 bg-background px-2 py-1.5 text-sm text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background"
+            >
+              {PAGE_WIDTH_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}
                 </option>

@@ -18,7 +18,7 @@ export default function Footer() {
 
   return (
     <footer className="mt-auto border-t border-secondary/20 bg-background">
-      <div className="mx-auto max-w-6xl px-4 md:px-6 py-6">
+      <div className="mx-auto max-w-[var(--page-max-w)] px-4 md:px-6 py-6">
         <div className="flex flex-wrap items-center justify-between gap-4 text-sm text-text/70">
           <span>
             © {year} {SITE_NAME}

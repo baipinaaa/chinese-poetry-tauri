@@ -25,7 +25,7 @@ const SAME_DYNASTY_PREVIEW_LIMIT = 10;
 /** 详情页加载骨架 */
 function PoemDetailSkeleton() {
   return (
-    <div className="mx-auto max-w-2xl animate-pulse space-y-6">
+    <div className="mx-auto max-w-[var(--reader-max-w)] animate-pulse space-y-6">
       <div className="mx-auto h-8 w-48 rounded bg-secondary/20" />
       <div className="mx-auto h-4 w-32 rounded bg-secondary/10" />
       <div className="space-y-3 pt-4">
@@ -72,7 +72,7 @@ export default function PoemDetailPage() {
   if (!poem) {
     return (
       <LayoutWithSidebar sidebarLeft={<SidebarLeft />}>
-        <div className="mx-auto max-w-2xl space-y-4 text-center">
+        <div className="mx-auto max-w-[var(--reader-max-w)] space-y-4 text-center">
           <h1 className="font-serif text-2xl font-bold text-primary md:text-3xl">未找到该诗词</h1>
           <p className="text-text/70">该诗词可能已被移除，或链接有误。</p>
           <p>
@@ -91,7 +91,7 @@ export default function PoemDetailPage() {
           <PoemDetailSidebar poem={poem} sameDynastyPoems={sameDynastyPoems} />
         }
       >
-        <article className="mx-auto max-w-2xl space-y-8">
+        <article className="mx-auto max-w-[var(--reader-max-w)] space-y-8">
           <PoemReader
             title={poem.title}
             author={poem.author}
